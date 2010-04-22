@@ -817,10 +817,10 @@ namespace mongo {
 #pragma pack(1)
     struct JSObj2 {
         JSObj2() {
-            totsize=sizeof(JSObj2);
+            totsize = littleEndian<unsigned>( sizeof(JSObj2) );
             s = String;
             strcpy_s(sname, 7, "abcdef");
-            slen = 10;
+            slen = littleEndian<unsigned> ( 10 );
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }

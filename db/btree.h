@@ -33,7 +33,7 @@ namespace mongo {
         short keyDataOfs() const {
             return (short) _kdo;
         }
-        unsigned short _kdo;
+        storageLE<unsigned short> _kdo;
         void setKeyDataOfs(short s) {
             _kdo = s;
             assert(s>=0);
@@ -164,13 +164,13 @@ namespace mongo {
     protected:
         void _shape(int level, stringstream&);
         DiskLoc nextChild; // child bucket off and to the right of the highest key.
-        int _Size; // total size of this btree node in bytes. constant.
+        storageLE<int> _Size; // total size of this btree node in bytes. constant.
         int Size() const;
-        int flags;
-        int emptySize; // size of the empty region
-        int topSize; // size of the data at the top of the bucket (keys are at the beginning or 'bottom')
-        int n; // # of keys so far.
-        int reserved;
+        storageLE<int> flags;
+        storageLE<int> emptySize; // size of the empty region
+        storageLE<int> topSize; // size of the data at the top of the bucket (keys are at the beginning or 'bottom')
+        storageLE<int> n; // # of keys so far.
+        storageLE<int> reserved;
         const _KeyNode& k(int i) const {
             return ((_KeyNode*)data)[i];
         }

@@ -136,26 +136,61 @@ namespace mongo {
     }
 
     struct MsgData {
-        int len; /* len of the msg, including this field */
-        MSGID id; /* request/reply id's match... */
-        MSGID responseTo; /* id of the message we are responding to */
+    private:
+        int _len; /* len of the msg, including this field */
+        MSGID _id; /* request/reply id's match... */
+        MSGID _responseTo; /* id of the message we are responding to */
         int _operation;
-        int operation() const {
-            return _operation;
-        }
-        void setOperation(int o) {
-            _operation = o;
-        }
+    public:
         char _data[4];
 
-        int& dataAsInt() {
-            return *((int *) _data);
+        char* afterLen() {
+           return reinterpret_cast<char*>(&_id);
         }
+
+        int operation() const {
+            return littleEndian<int>( _operation );
+        }
+        void setOperation(int o) {
+            _operation = littleEndian<int>( o );
+        }
+
+        int getDataAsInt() const {
+            return readLE<int>(_data);
+        }
+
+       int id() const {
+          return littleEndian<int>( _id );
+       }
+
+       void setId( int id ) {
+          _id = littleEndian<int>( id );
+       }
+
+       int responseTo() const {
+          return littleEndian<int>(_responseTo);
+       }
+
+       void setResponseTo( int responseTo ) {
+          _responseTo = littleEndian<int>( responseTo );
+       }
+
+       void setDataAsInt( int val ) {
+          copyLE<int>( _data, val );
+       }
+
+       int len() const {
+          return littleEndian<int>( _len );
+       }
+
+       void setLen( int inLen ) {
+          _len = littleEndian<int>( inLen );
+       }
         
-        bool valid(){
-            if ( len <= 0 || len > ( 1024 * 1024 * 10 ) )
+       bool valid() const {
+            if ( len() <= 0 || len() > ( 1024 * 1024 * 10 ) )
                 return false;
-            if ( _operation < 0 || _operation > 100000 )
+            if ( operation() < 0 || operation() > 100000 )
                 return false;
             return true;
         }
@@ -164,7 +199,7 @@ namespace mongo {
     };
     const int MsgDataHeaderSize = sizeof(MsgData) - 4;
     inline int MsgData::dataLen() {
-        return len - MsgDataHeaderSize;
+        return len() - MsgDataHeaderSize;
     }
 
 #pragma pack()
@@ -220,7 +255,7 @@ namespace mongo {
             size_t dataLen = len + sizeof(MsgData) - 4;
             MsgData *d = (MsgData *) malloc(dataLen);
             memcpy(d->_data, msgdata, len);
-            d->len = fixEndian(dataLen);
+            d->setLen(dataLen);
             d->setOperation(operation);
             freeIt= true;
             data = d;

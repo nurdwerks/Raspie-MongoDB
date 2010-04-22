@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include "../util/bswap.h"
+
 namespace mongo {
 
 #pragma pack(1)
@@ -34,8 +36,8 @@ namespace mongo {
     class MongoDataFile;
 
     class DiskLoc {
-        int fileNo; /* this will be volume, file #, etc. */
-        int ofs;
+        storageLE<int> fileNo; /* this will be volume, file #, etc. */
+        storageLE<int> ofs;
     public:
         // Note: MaxFiles imposes a limit of about 32TB of data per process
         enum SentinelValues { MaxFiles=16000, NullOfs = -1 };
@@ -87,7 +89,7 @@ namespace mongo {
         }
         operator string() const { return toString(); }
 
-        int& GETOFS() {
+        storageLE<int>& GETOFS() {
             return ofs;
         }
         int getOfs() const {

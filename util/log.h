@@ -41,6 +41,7 @@ namespace mongo {
         const T& t_;
     };
 
+
     class Nullstream {
     public:
         virtual ~Nullstream() {}
@@ -101,6 +102,7 @@ namespace mongo {
         Nullstream& operator<<(const shared_ptr<T> p ){
             return *this;
         }
+
         template< class T >
         Nullstream& operator<<(const T &t) {
             return operator<<( static_cast<const LazyString&>( LazyStringImpl< T >( t ) ) );

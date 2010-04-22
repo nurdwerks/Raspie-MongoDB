@@ -19,6 +19,7 @@
 
 #include "../stdafx.h"
 #include <string.h>
+#include "bswap.h"
 
 namespace mongo {
 
@@ -72,7 +73,7 @@ namespace mongo {
         }
 
         template<class T> void append(T j) {
-            *((T*)grow(sizeof(T))) = j;
+            copyLE(grow(sizeof(T)), j);
         }
         void append(short j) {
             append<short>(j);

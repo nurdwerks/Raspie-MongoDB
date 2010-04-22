@@ -280,8 +280,8 @@ namespace mongo {
             }
             break;
         case BinData: {
-            int len = *(int *)( value() );
-            BinDataType type = BinDataType( *(char *)( (int *)( value() ) + 1 ) );
+            int len = readLE<int>( value() );
+            BinDataType type = BinDataType( value()[4] );
             s << "{ \"$binary\" : \"";
             char *start = ( char * )( value() ) + sizeof( int ) + 1;
             base64::encode( s , start , len );
@@ -600,15 +600,15 @@ namespace mongo {
             break;
         }
         case CodeWScope: {
-            int totalSize = *( int * )( value() );
+            int totalSize = readLE<int>( value() );
             massert( 10322 ,  "Invalid CodeWScope size", totalSize >= 8 );
-            int strSizeWNull = *( int * )( value() + 4 );
+            int strSizeWNull = readLE<int>( value() + 4 );
             massert( 10323 ,  "Invalid CodeWScope string size", totalSize >= strSizeWNull + 4 + 4 );
             massert( 10324 ,  "Invalid CodeWScope string size",
                      strSizeWNull > 0 &&
                      strSizeWNull - 1 == strnlen( codeWScopeCode(), strSizeWNull ) );
             massert( 10325 ,  "Invalid CodeWScope size", totalSize >= strSizeWNull + 4 + 4 + 4 );
-            int objSize = *( int * )( value() + 4 + 4 + strSizeWNull );
+            int objSize = readLE<int>( value() + 4 + 4 + strSizeWNull );
             massert( 10326 ,  "Invalid CodeWScope object size", totalSize == 4 + 4 + strSizeWNull + objSize );
             // Subobject validation handled elsewhere.
         }
@@ -1246,7 +1246,7 @@ namespace mongo {
 #pragma pack(1)
     struct MaxKeyData {
         MaxKeyData() {
-            totsize=7;
+            totsize= littleEndian<int>( 7 );
             maxkey=MaxKey;
             name=0;
             eoo=EOO;
@@ -1260,7 +1260,7 @@ namespace mongo {
 
     struct MinKeyData {
         MinKeyData() {
-            totsize=7;
+            totsize= littleEndian<int>( 7 );
             minkey=MinKey;
             name=0;
             eoo=EOO;
@@ -1274,7 +1274,7 @@ namespace mongo {
 
     struct JSObj0 {
         JSObj0() {
-            totsize = 5;
+            totsize= littleEndian<int>( 5 );
             eoo = EOO;
         }
         int totsize;
@@ -1447,7 +1447,7 @@ namespace mongo {
         data[2] = T[1];
         data[3] = T[0];
 
-        (unsigned&) data[4] = _machine;
+        copyLE<unsigned>( &data[4], _machine );
 
         int new_inc = inc++;
         T = (char *) &new_inc;
@@ -1494,9 +1494,8 @@ namespace mongo {
 
     void BSONElementManipulator::initTimestamp() {
         massert( 10332 ,  "Expected CurrentTime type", _element.type() == Timestamp );
-        unsigned long long &timestamp = *( reinterpret_cast< unsigned long long* >( value() ) );
-        if ( timestamp == 0 )
-            timestamp = OpTime::now().asDate();
+        if ( readLE<unsigned long long>( value() ) == 0 )
+            copyLE<unsigned long long>( value(), OpTime::now().asDate() );
     }
 
 

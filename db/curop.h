@@ -59,7 +59,7 @@ namespace mongo {
         
         char _queryBuf[256];
         
-        void resetQuery(int x=0) { *((int *)_queryBuf) = x; }
+        void resetQuery(int x=0) { copyLE<int>( _queryBuf, x ); }
         
         OpDebug _debug;
         
@@ -82,10 +82,10 @@ namespace mongo {
 
     public:
 
-        bool haveQuery() const { return *((int *) _queryBuf) != 0; }
+        bool haveQuery() const { return readLE<int>( _queryBuf ) != 0; }
 
         BSONObj query() {
-            if( *((int *) _queryBuf) == 1 ) { 
+            if( readLE<int>( _queryBuf ) == 1 ) { 
                 return _tooBig;
             }
             BSONObj o(_queryBuf);

@@ -158,7 +158,7 @@ namespace mongo {
 
     static bool receivedQuery(Client& c, DbResponse& dbresponse, Message& m ){
         bool ok = true;
-        MSGID responseTo = m.data->id;
+        MSGID responseTo = m.data->id();
 
         DbMessage d(m);
         QueryMessage q(d);
@@ -191,12 +191,12 @@ namespace mongo {
             msgdata = (QueryResult *) b.buf();
             b.decouple();
             QueryResult *qr = msgdata;
-            qr->_resultFlags() = QueryResult::ResultFlag_ErrSet;
-            qr->len = b.len();
+            qr->setResultFlags( QueryResult::ResultFlag_ErrSet );
+            qr->setLen( b.len() );
             qr->setOperation(opReply);
-            qr->cursorId = 0;
-            qr->startingFrom = 0;
-            qr->nReturned = 1;
+            qr->setCursorId( 0 );
+            qr->setStartingFrom( 0 );
+            qr->setNReturned( 1 );
 
         }
         Message *resp = new Message();
@@ -301,7 +301,7 @@ namespace mongo {
                 resp->setData( opReply , "i am fine - dbMsg deprecated");
 
             dbresponse.response = resp;
-            dbresponse.responseTo = m.data->id;
+            dbresponse.responseTo = m.data->id();
         }
         else {
             const char *ns = m.data->_data + 4;
@@ -377,9 +377,10 @@ namespace mongo {
 
     void killCursors(int n, long long *ids);
     void receivedKillCursors(Message& m) {
-        int *x = (int *) m.data->_data;
-        x++; // reserved
-        int n = *x++;
+        char *x = m.data->_data;
+        x += 4; // reserved
+        int n = readLE<int>( x );
+        x += 4;
         uassert( 13004 , "sent 0 cursors to kill" , n >= 1 );
         if ( n > 2000 ) {
             problem() << "Assertion failure, receivedKillCursors, n=" << n << endl;
@@ -514,9 +515,9 @@ namespace mongo {
         Message *resp = new Message();
         resp->setData(msgdata, true);
         ss << " bytes:" << resp->data->dataLen();
-        ss << " nreturned:" << msgdata->nReturned;
+        ss << " nreturned:" << msgdata->nReturned();
         dbresponse.response = resp;
-        dbresponse.responseTo = m.data->id;
+        dbresponse.responseTo = m.data->id();
 
         return ok;
     }

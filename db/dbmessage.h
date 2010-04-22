@@ -55,20 +55,50 @@ namespace mongo {
             ResultFlag_AwaitCapable = 8
         };
 
-        long long cursorId;
-        int startingFrom;
-        int nReturned;
+    private:
+        long long _cursorId;
+        int _startingFrom;
+        int _nReturned;
+    public:
+
+        long long cursorId() const {
+           return littleEndian<long long>( _cursorId );
+        }
+
+        void setCursorId( long long cursorID ) {
+           _cursorId = littleEndian<long long>( cursorID );
+        }
+
         const char *data() {
-            return (char *) (((int *)&nReturned)+1);
+            return (char *) (((int *)&_nReturned)+1);
         }
-        int resultFlags() {
-            return dataAsInt();
+
+        int resultFlags() const {
+            return getDataAsInt();
         }
-        int& _resultFlags() {
-            return dataAsInt();
+
+        void setResultFlags( int resultFlags ) {
+           setDataAsInt( resultFlags );
         }
+        
         void setResultFlagsToOk() { 
-            _resultFlags() = ResultFlag_AwaitCapable;
+           setResultFlags( ResultFlag_AwaitCapable );
+        }
+
+        int startingFrom() const {
+           return littleEndian<int>( _startingFrom );
+        }
+        
+        void setStartingFrom( int startingFrom ) {
+           _startingFrom = littleEndian<int>( startingFrom );
+        }
+        
+        int nReturned() const {
+           return littleEndian<int>( _nReturned );
+        }
+
+        void setNReturned( int nReturned ) {
+           _nReturned = littleEndian<int>( nReturned );
         }
     };
 #pragma pack()
@@ -81,10 +111,9 @@ namespace mongo {
     public:
         DbMessage(const Message& _m) : m(_m) {
             theEnd = _m.data->_data + _m.data->dataLen();
-            int *r = (int *) _m.data->_data;
-            reserved = *r;
-            r++;
-            data = (const char *) r;
+            char *r = _m.data->_data;
+            reserved = readLE<int>( r );
+            data = (const char *) r + 4;
             nextjsobj = data;
         }
 
@@ -102,19 +131,28 @@ namespace mongo {
         int pullInt() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            int i = *((int *)nextjsobj);
+            int i = readLE<int>(nextjsobj);
             nextjsobj += 4;
             return i;
         }
-        long long pullInt64() const {
-            return pullInt64();
-        }
-        long long &pullInt64() {
+
+        long long getInt64() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            long long &i = *((long long *)nextjsobj);
-            nextjsobj += 8;
-            return i;
+            return readLE<long long>( nextjsobj );
+        }
+
+        long long pullInt64() {
+           long long ret = getInt64();
+           nextjsobj += 8;
+           return ret;
+        }
+
+        void pushInt64( long long toPush ) {
+           if ( nextjsobj == data )
+              nextjsobj += strlen(data) + 1; // skip namespace
+           copyLE<long long>( const_cast<char*>(nextjsobj), toPush );
+           nextjsobj += 8;
         }
 
         OID* getOID() {
@@ -122,10 +160,9 @@ namespace mongo {
         }
 
         void getQueryStuff(const char *&query, int& ntoreturn) {
-            int *i = (int *) (data + strlen(data) + 1);
-            ntoreturn = *i;
-            i++;
-            query = (const char *) i;
+            query = data + strlen(data) + 1;
+            ntoreturn = readLE<int>( query );
+            query += 4;
         }
 
         /* for insert and update msgs */
@@ -193,7 +230,7 @@ namespace mongo {
             if ( d.moreJSObjs() ) {
                 fields = d.nextJsObj();
             }
-            queryOptions = d.msg().data->dataAsInt();
+            queryOptions = d.msg().data->getDataAsInt();
         }
     };
 
@@ -213,15 +250,15 @@ namespace mongo {
         b.skip(sizeof(QueryResult));
         b.append(data, size);
         QueryResult *qr = (QueryResult *) b.buf();
-        qr->_resultFlags() = queryResultFlags;
-        qr->len = b.len();
-        qr->setOperation(opReply);
-        qr->cursorId = cursorId;
-        qr->startingFrom = startingFrom;
-        qr->nReturned = nReturned;
+        qr->setResultFlags( queryResultFlags );
+        qr->setLen( b.len() );
+        qr->setOperation( opReply );
+        qr->setCursorId( cursorId );
+        qr->setStartingFrom( startingFrom );
+        qr->setNReturned( nReturned );
         b.decouple();
         Message resp(qr, true);
-        p->reply(requestMsg, resp, requestMsg.data->id);
+        p->reply(requestMsg, resp, requestMsg.data->id() );
     }
 
 } // namespace mongo
@@ -249,16 +286,16 @@ namespace mongo {
         QueryResult* msgdata = (QueryResult *) b.buf();
         b.decouple();
         QueryResult *qr = msgdata;
-        qr->_resultFlags() = queryResultFlags;
-        qr->len = b.len();
-        qr->setOperation(opReply);
-        qr->cursorId = 0;
-        qr->startingFrom = 0;
-        qr->nReturned = 1;
+        qr->setResultFlags( queryResultFlags );
+        qr->setLen( b.len() );
+        qr->setOperation( opReply );
+        qr->setCursorId( 0 );
+        qr->setStartingFrom( 0 );
+        qr->setNReturned( 1 );
         Message *resp = new Message();
         resp->setData(msgdata, true); // transport will free
         dbresponse.response = resp;
-        dbresponse.responseTo = m.data->id;
+        dbresponse.responseTo = m.data->id();
     }
 
 } // namespace mongo

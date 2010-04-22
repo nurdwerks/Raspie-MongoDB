@@ -137,8 +137,8 @@ namespace mongo {
 
     class DeletedRecord {
     public:
-        int lengthWithHeaders;
-        int extentOfs;
+        storageLE<int> lengthWithHeaders;
+        storageLE<int> extentOfs;
         DiskLoc nextDeleted;
         Extent* myExtent(const DiskLoc& myLoc) {
             return DataFileMgr::getExtent(DiskLoc(myLoc.a(), extentOfs));
@@ -159,10 +159,10 @@ namespace mongo {
     class Record {
     public:
         enum HeaderSizeValue { HeaderSize = 16 };
-        int lengthWithHeaders;
-        int extentOfs;
-        int nextOfs;
-        int prevOfs;
+        storageLE<int> lengthWithHeaders;
+        storageLE<int> extentOfs;
+        storageLE<int> nextOfs;
+        storageLE<int> prevOfs;
         char data[4];
         int netLength() {
             return lengthWithHeaders - HeaderSize;
@@ -190,7 +190,7 @@ namespace mongo {
     */
     class Extent {
     public:
-        unsigned magic;
+        storageLE<unsigned> magic;
         DiskLoc myLoc;
         DiskLoc xnext, xprev; /* next/prev extent for this namespace */
 
@@ -199,7 +199,7 @@ namespace mongo {
         */
         Namespace nsDiagnostic; 
 
-        int length;   /* size of the extent, including these fields */
+        storageLE<int> length;   /* size of the extent, including these fields */
         DiskLoc firstRecord, lastRecord;
         char _extentData[4];
 
@@ -262,11 +262,11 @@ namespace mongo {
 
     class DataFileHeader {
     public:
-        int version;
-        int versionMinor;
-        int fileLength;
+        storageLE<int> version;
+        storageLE<int> versionMinor;
+        storageLE<int> fileLength;
         DiskLoc unused; /* unused is the portion of the file that doesn't belong to any allocated extents. -1 = no more */
-        int unusedLength;
+        storageLE<int> unusedLength;
         char reserved[8192 - 4*4 - 8];
 
         char data[4];

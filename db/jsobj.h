@@ -321,7 +321,7 @@ namespace mongo {
             Ensure element is of type Date before calling.
         */
         Date_t date() const {
-            return *reinterpret_cast< const Date_t* >( value() );
+            return Date_t( readLE<unsigned long long>( value() ) );
         }
 
         /** Convert the value to boolean, regardless of its type, in a javascript-like fashion 
@@ -330,11 +330,11 @@ namespace mongo {
         bool trueValue() const {
             switch( type() ) {
                 case NumberLong:
-                    return *reinterpret_cast< const long long* >( value() ) != 0;
+                    return readLE<long long>( value() ) != 0;
                 case NumberDouble:
-                    return *reinterpret_cast< const double* >( value() ) != 0;
+                    return readLE<double>( value() ) != 0;
                 case NumberInt:
-                    return *reinterpret_cast< const int* >( value() ) != 0;
+                    return readLE<int>( value() ) != 0;
                 case Bool:
                     return boolean();
                 case EOO:
@@ -376,11 +376,11 @@ namespace mongo {
         }
 
         /** Return double value for this field. MUST be NumberDouble type. */
-        double _numberDouble() const {return *reinterpret_cast< const double* >( value() ); }
+        double _numberDouble() const {return readLE<double>( value() ); }
         /** Return double value for this field. MUST be NumberInt type. */
-        int _numberInt() const {return *reinterpret_cast< const int* >( value() ); }
+        int _numberInt() const {return readLE<int>( value() ); }
         /** Return double value for this field. MUST be NumberLong type. */
-        long long _numberLong() const {return *reinterpret_cast< const long long* >( value() ); }
+        long long _numberLong() const {return readLE<long long>( value() ); }
 
         /** Retrieve int value for the element safely.  Zero returned if not a number. */
         int numberInt() const { 
@@ -418,9 +418,9 @@ namespace mongo {
                 case NumberDouble:
                     return _numberDouble();
                 case NumberInt:
-                    return *reinterpret_cast< const int* >( value() );
+                    return readLE<int>( value() );
                 case NumberLong:
-                    return (double) *reinterpret_cast< const long long* >( value() );
+                    return readLE<long long>( value() );
                 default:
                     return 0;
             }
@@ -444,12 +444,12 @@ namespace mongo {
         /** Size (length) of a string element.  
             You must assure of type String first.  */
         int valuestrsize() const {
-            return *reinterpret_cast< const int* >( value() );
+            return readLE<int>( value() );
         }
 
         // for objects the size *includes* the size of the size field
         int objsize() const {
-            return *reinterpret_cast< const int* >( value() );
+            return readLE<int>( value() );
         }
 
         /** Get a string's value.  Also gives you start of the real data for an embedded object. 
@@ -582,15 +582,15 @@ namespace mongo {
         }
 
         OpTime optime() const {
-            return OpTime( *reinterpret_cast< const unsigned long long* >( value() ) );
+            return OpTime( readLE< unsigned long long >( value() ) );
         }
 
         Date_t timestampTime() const{
-            unsigned long long t = ((unsigned int*)(value() + 4 ))[0];
+            unsigned long long t = readLE<unsigned int>(value() + 4 );
             return t * 1000;
         }
         unsigned int timestampInc() const{
-            return ((unsigned int*)(value() ))[0];
+            return readLE<unsigned int>( value() );
         }
 
         const char * dbrefNS() const {
@@ -601,7 +601,7 @@ namespace mongo {
         const OID& dbrefOID() const {
             uassert( 10064 ,  "not a dbref" , type() == DBRef );
             const char * start = value();
-            start += 4 + *reinterpret_cast< const int* >( start );
+            start += 4 + readLE<int>( start );
             return *reinterpret_cast< const OID* >( start );
         }
 
@@ -721,7 +721,7 @@ namespace mongo {
                 len = 5;
                 jstype = EOO;
             }
-            int len;
+            storageLE<int> len;
             char jstype;
         } emptyObject;
 #pragma pack()
@@ -858,7 +858,7 @@ namespace mongo {
         }
         /** @return total size of the BSON object in bytes */
         int objsize() const {
-            return *(reinterpret_cast<const int*>(objdata()));
+            return readLE<int>(objdata());
         }
 
         bool isValid();
@@ -1628,7 +1628,7 @@ namespace mongo {
             b.append((char) EOO);
             char *data = b.buf() + offset_;
             int size = b.len() - offset_;
-            *((int*)data) = size;
+            copyLE<int>( data, size );
             if ( _tracker )
                 _tracker->got( size );
             return data;
@@ -1791,13 +1791,13 @@ namespace mongo {
 #pragma pack(1)
     struct JSObj1 {
         JSObj1() {
-            totsize=sizeof(JSObj1);
+            totsize= littleEndian<unsigned>( sizeof(JSObj1) );
             n = NumberDouble;
             strcpy_s(nname, 5, "abcd");
-            N = 3.1;
+            N = littleEndian<double>( 3.1 );
             s = String;
             strcpy_s(sname, 7, "abcdef");
-            slen = 10;
+            slen = littleEndian<unsigned>( 10 );
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
@@ -1835,7 +1835,7 @@ namespace mongo {
 
     inline BSONObj BSONElement::codeWScopeObject() const {
         assert( type() == CodeWScope );
-        int strSizeWNull = *(int *)( value() + 4 );
+        int strSizeWNull = readLE<int>( value() + 4 );
         return BSONObj( value() + 4 + 4 + strSizeWNull );
     }
     

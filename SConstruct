@@ -660,8 +660,8 @@ if not nojni and useJavaHome:
     env.Append( LINKFLAGS="-Xlinker -rpath -Xlinker " + javaHome + "jre/lib/" + javaVersion  )
 
 if nix:
-    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch" )
-    env.Append( CXXFLAGS=" -Wnon-virtual-dtor " )
+    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch " )
+    env.Append( CXXFLAGS=" -Wnon-virtual-dtor -Wcast-align " )
     env.Append( LINKFLAGS=" -fPIC -pthread -rdynamic" )
     env.Append( LIBS=[] )
 
@@ -794,9 +794,22 @@ def bigLibString( myenv ):
         s += str( myenv["SLIBS"] )
     return s
 
-
+def CheckFetchAndAdd( context ):
+    context.Message( 'Checking for __sync_fetch_and_add ...' )
+    res = context.TryLink( """
+          int main() 
+          { 
+            int x; 
+            __sync_fetch_and_add(&x, 1); 
+            __sync_add_and_fetch(&x, 1);
+            return 0; 
+          }
+""", ".c" )
+    context.Result( res )
+    return res
+   
 def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
-    conf = Configure(myenv)
+    conf = Configure(myenv, custom_tests = { 'CheckFetchAndAdd' : CheckFetchAndAdd } )
     myenv["LINKFLAGS_CLEAN"] = list( myenv["LINKFLAGS"] )
     myenv["LIBS_CLEAN"] = list( myenv["LIBS"] )
 
@@ -809,6 +822,20 @@ def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
         if not conf.CheckLib( "stdc++" ):
             print( "can't find stdc++ library which is needed" );
             Exit(1)
+
+    def checkSyncAddAndFetch( conf ):
+       print( "Checking for __sync_fetch_and_add and __sync_add_and_fetch" )
+       prog = """
+          int main() 
+          { 
+            int x; 
+            __sync_fetch_and_add(&x, 1); 
+            __sync_add_and_fetch(&x, 1);
+            return 0; 
+          }
+"""
+       return conf.TryLink(prog, '.c')
+ 
 
     def myCheckLib( poss , failIfNotFound=False , java=False , staticOnly=False):
 
@@ -968,6 +995,11 @@ def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
                     break
             if not found:
                 raise "can't find a static %s" % l
+
+    # Look for __sync_add_and_fetch and __sync_fetch_and_add
+    if conf.CheckFetchAndAdd():
+        env.Append( CPPFLAGS=" -DHAVE_SYNC_FETCH_AND_ADD" );
+       
 
     myenv.Append(LINKCOM=" $STATICFILES")
     myenv.Append(STATICFILES=staticlibfiles)

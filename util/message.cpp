@@ -201,13 +201,13 @@ namespace mongo {
         }
 
         void append( Message& m ) {
-            assert( m.data->len <= 1300 );
+            assert( m.data->len() <= 1300 );
 
-            if ( len() + m.data->len > 1300 )
+            if ( len() + m.data->len() > 1300 )
                 flush();
 
-            memcpy( _cur , m.data , m.data->len );
-            _cur += m.data->len;
+            memcpy( _cur , m.data , m.data->len() );
+            _cur += m.data->len();
         }
 
         void flush() {
@@ -349,6 +349,8 @@ namespace mongo {
             int lft = 4;
             recv( lenbuf, lft );
             
+            len = littleEndian<int>( len );
+
             if ( len < 0 || len > 16000000 ) {
                 if ( len == -1 ) {
                     // Endian check from the database, after connecting, to see what mode server is running in.
@@ -375,14 +377,14 @@ namespace mongo {
             assert(z>=len);
             MsgData *md = (MsgData *) malloc(z);
             assert(md);
-            md->len = len;
+            md->setLen( len );
             
             if ( len <= 0 ) {
                 out() << "got a length of " << len << ", something is wrong" << endl;
                 return false;
             }
             
-            char *p = (char *) &md->id;
+            char *p = md->afterLen();
             int left = len -4;
             recv( p, left );
             
@@ -396,7 +398,7 @@ namespace mongo {
     }
     
     void MessagingPort::reply(Message& received, Message& response) {
-        say(/*received.from, */response, received.data->id);
+       say(/*received.from, */response, received.data->id());
     }
 
     void MessagingPort::reply(Message& received, Message& response, MSGID responseTo) {
@@ -405,20 +407,25 @@ namespace mongo {
 
     bool MessagingPort::call(Message& toSend, Message& response) {
         mmm( out() << "*call()" << endl; )
-        MSGID old = toSend.data->id;
+        MSGID old = toSend.data->id();
         say(/*to,*/ toSend);
         while ( 1 ) {
             bool ok = recv(response);
             if ( !ok )
                 return false;
             //out() << "got response: " << response.data->responseTo << endl;
-            if ( response.data->responseTo == toSend.data->id )
+            if ( response.data->responseTo() == toSend.data->id() )
                 break;
             out() << "********************" << endl;
-            out() << "ERROR: MessagingPort::call() wrong id got:" << (unsigned)response.data->responseTo << " expect:" << (unsigned)toSend.data->id << endl;
-            out() << "  toSend op: " << toSend.data->operation() << " old id:" << (unsigned)old << endl;
-            out() << "  response msgid:" << (unsigned)response.data->id << endl;
-            out() << "  response len:  " << (unsigned)response.data->len << endl;
+            out() << "ERROR: MessagingPort::call() wrong id got:" 
+                  << (unsigned)response.data->responseTo()
+                  << " expect:" << (unsigned)toSend.data->id() << endl;
+            out() << "  toSend op: " << toSend.data->operation() 
+                  << " old id:" << (unsigned)old << endl;
+            out() << "  response msgid:"
+                  << (unsigned)response.data->id() << endl;
+            out() << "  response len:  " 
+                  << (unsigned)response.data->len() << endl;
             out() << "  response op:  " << response.data->operation() << endl;
             out() << "  farEnd: " << farEnd << endl;
             assert(false);
@@ -431,12 +438,12 @@ namespace mongo {
     void MessagingPort::say(Message& toSend, int responseTo) {
         assert( toSend.data );
         mmm( out() << "*  say() sock:" << this->sock << " thr:" << GetCurrentThreadId() << endl; )
-        toSend.data->id = nextMessageId();
-        toSend.data->responseTo = responseTo;
+        toSend.data->setId( nextMessageId() );
+        toSend.data->setResponseTo( responseTo );
 
         if ( piggyBackData && piggyBackData->len() ) {
             mmm( out() << "*     have piggy back" << endl; )
-            if ( ( piggyBackData->len() + toSend.data->len ) > 1300 ) {
+            if ( ( piggyBackData->len() + toSend.data->len() ) > 1300 ) {
                 // won't fit in a packet - so just send it off
                 piggyBackData->flush();
             }
@@ -447,7 +454,7 @@ namespace mongo {
             }
         }
 
-        send( (char*)toSend.data, toSend.data->len, "say" );
+        send( (char*)toSend.data, toSend.data->len(), "say" );
     }
 
     // sends all data or throws an exception
@@ -505,15 +512,15 @@ namespace mongo {
     
     void MessagingPort::piggyBack( Message& toSend , int responseTo ) {
 
-        if ( toSend.data->len > 1300 ) {
+        if ( toSend.data->len() > 1300 ) {
             // not worth saving because its almost an entire packet
             say( toSend );
             return;
         }
 
         // we're going to be storing this, so need to set it up
-        toSend.data->id = nextMessageId();
-        toSend.data->responseTo = responseTo;
+        toSend.data->setId( nextMessageId() );
+        toSend.data->setResponseTo( responseTo );
 
         if ( ! piggyBackData )
             piggyBackData = new PiggyBackData( this );
