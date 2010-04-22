@@ -46,6 +46,7 @@
 #include "security.h"
 #include "cmdline.h"
 #include "repl_block.h"
+#include "repl/replset.h"
 
 namespace mongo {
     
@@ -74,7 +75,7 @@ namespace mongo {
     
 } // namespace mongo
 
-#include "replset.h"
+#include "replpair.h"
 
 namespace mongo {
 
@@ -271,7 +272,7 @@ namespace mongo {
     void appendReplicationInfo( BSONObjBuilder& result , bool authed , int level ){
         
         if ( replAllDead ) {
-            result.append("ismaster", 0.0);
+            result.append("ismaster", 0);
             if( authed ) { 
                 if ( replPair )
                     result.append("remote", replPair->remote);
@@ -343,13 +344,24 @@ namespace mongo {
             return true;
         }
         virtual LockType locktype(){ return NONE; }
-        CmdIsMaster() : Command("ismaster") { }
+        CmdIsMaster() : Command("ismaster", true) { }
         virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool /*fromRepl*/) {
 			/* currently request to arbiter is (somewhat arbitrarily) an ismaster request that is not 
 			   authenticated.
 			   we allow unauthenticated ismaster but we aren't as verbose informationally if 
 			   one is not authenticated for admin db to be safe.
 			*/
+
+            if( replSet ) {
+                if( theReplSet == 0 ) { 
+                    result.append("ismaster", 0);
+                    result.append("ok", false);
+                    result.append("msg", "replSet still trying to initialize");
+                    return true;
+                }
+                theReplSet->fillIsMaster(result);
+                return true;
+            }
             
 			bool authed = cc().getAuthenticationInfo()->isAuthorizedReads("admin");
             appendReplicationInfo( result , authed );
@@ -1709,12 +1721,16 @@ namespace mongo {
     }
 
     void startReplication() {
+        /* if we are going to be a replica set, we aren't doing other forms of replication. */
+        if( !cmdLine.replSet.empty() )
+            return;
+
         /* this was just to see if anything locks for longer than it should -- we need to be careful
            not to be locked when trying to connect() or query() the other side.
            */
         //boost::thread tempt(tempThread);
 
-        if ( !replSettings.slave && !replSettings.master && !replPair )
+        if( !replSettings.slave && !replSettings.master && !replPair )
             return;
 
         {
@@ -1725,11 +1741,11 @@ namespace mongo {
 
         if ( replSettings.slave || replPair ) {
             if ( replSettings.slave ) {
-				assert( replSettings.slave == SimpleSlave );
+                assert( replSettings.slave == SimpleSlave );
                 log(1) << "slave=true" << endl;
-			}
-			else
-				replSettings.slave = ReplPairSlave;
+            }
+            else
+                replSettings.slave = ReplPairSlave;
             boost::thread repl_thread(replSlaveThread);
         }
 

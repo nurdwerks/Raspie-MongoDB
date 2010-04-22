@@ -20,6 +20,8 @@
 #include "request.h"
 #include "chunk.h"
 #include "cursors.h"
+#include "stats.h"
+
 #include "../client/connpool.h"
 #include "../db/commands.h"
 
@@ -48,17 +50,19 @@ namespace mongo {
             set<ServerAndQuery> servers;
             map<string,int> serverCounts;
             for ( vector<Chunk*>::iterator i = shards.begin(); i != shards.end(); i++ ){
-                servers.insert( ServerAndQuery( (*i)->getShard() , (*i)->getFilter() ) );
+                Chunk* c = *i;
+                //servers.insert( ServerAndQuery( c->getShard() , BSONObj() ) );
+                servers.insert( ServerAndQuery( c->getShard() , c->getFilter() ) );
                 int& num = serverCounts[(*i)->getShard()];
                 num++;
             }
             
             if ( logLevel > 4 ){
                 StringBuilder ss;
-                ss << " shard query servers: " << servers.size() << "\n";
+                ss << " shard query servers: " << servers.size() << '\n';
                 for ( set<ServerAndQuery>::iterator i = servers.begin(); i!=servers.end(); i++ ){
                     const ServerAndQuery& s = *i;
-                    ss << "       " << s.toString() << "\n";
+                    ss << "       " << s.toString() << '\n';
                 }
                 log() << ss.str();
             }
@@ -91,6 +95,7 @@ namespace mongo {
             assert( cursor );
             
             log(5) << "   cursor type: " << cursor->type() << endl;
+            shardedCursorTypes.hit( cursor->type() );
 
             ShardedClientCursor * cc = new ShardedClientCursor( q , cursor );
             if ( ! cc->sendNextBatch( r ) ){
@@ -191,7 +196,17 @@ namespace mongo {
             
             if ( ! save ){
                 if ( toupdate.firstElement().fieldName()[0] == '$' ){
-                    // TODO: check for $set, etc.. on shard key
+                    BSONObjIterator ops(toupdate);
+                    while(ops.more()){
+                        BSONElement op(ops.next());
+                        if (op.type() != Object)
+                            continue;
+                        BSONObjIterator fields(op.embeddedObject());
+                        while(fields.more()){
+                            const string field = fields.next().fieldName();
+                            uassert(13123, "Can't modify shard key's value", ! manager->getShardKey().partOfShardKey(field));
+                        }
+                    }
                 }
                 else if ( manager->hasShardKey( toupdate ) && manager->getShardKey().compare( query , toupdate ) ){
                     throw UserException( 8014 , "change would move shards!" );

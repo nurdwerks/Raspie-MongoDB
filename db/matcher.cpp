@@ -141,43 +141,6 @@ namespace mongo {
         
     }
     
-    CoveredIndexMatcher::CoveredIndexMatcher(const BSONObj &jsobj, const BSONObj &indexKeyPattern) :
-        _keyMatcher(jsobj.filterFieldsUndotted(indexKeyPattern, true), 
-        indexKeyPattern),
-        _docMatcher(jsobj) 
-    {
-        _needRecord = ! ( 
-                         _docMatcher.keyMatch() && 
-                         _keyMatcher.jsobj.nFields() == _docMatcher.jsobj.nFields() &&
-                         ! _keyMatcher.hasType( BSONObj::opEXISTS )
-                          );
-
-    }
-
-    bool CoveredIndexMatcher::matchesCurrent( Cursor * cursor , MatchDetails * details ){
-        return matches( cursor->currKey() , cursor->currLoc() , details );
-    }
-    
-    bool CoveredIndexMatcher::matches(const BSONObj &key, const DiskLoc &recLoc , MatchDetails * details ) {
-        if ( details )
-            details->reset();
-        
-        if ( _keyMatcher.keyMatch() ) {
-            if ( !_keyMatcher.matches(key, details ) ){
-                return false;
-            }
-        }
-        
-        if ( ! _needRecord ){
-            return true;
-        }
-
-        if ( details )
-            details->loadedObject = true;
-
-        return _docMatcher.matches(recLoc.rec() , details );
-    }
-    
     
     void Matcher::addRegex(const char *fieldName, const char *regex, const char *flags, bool isNot){
 
@@ -293,7 +256,7 @@ namespace mongo {
     
     /* _jsobj          - the query pattern
     */
-    Matcher::Matcher(const BSONObj &_jsobj, const BSONObj &constrainIndexKey) :
+    Matcher::Matcher(const BSONObj &_jsobj, const BSONObj &constrainIndexKey, bool subMatcher) :
         where(0), jsobj(_jsobj), haveSize(), all(), hasArray(0), haveNeg(), _atomic(false), nRegex(0) {
 
         BSONObjIterator i(jsobj);
@@ -302,20 +265,23 @@ namespace mongo {
             
             const char *ef = e.fieldName();
             if ( ef[1] == 'o' && ef[2] == 'r' && ef[3] == 0 ) {
+                uassert( 13090, "recursive $or not allowed", !subMatcher );
                 uassert( 13086, "$or must be a nonempty array", e.type() == Array && e.embeddedObject().nFields() > 0 );
                 BSONObjIterator j( e.embeddedObject() );
                 while( j.more() ) {
                     BSONElement f = j.next();
                     uassert( 13087, "$or match element must be an object", f.type() == Object );
-                    _orMatchers.push_back( shared_ptr< Matcher >( new Matcher( f.embeddedObject(), constrainIndexKey ) ) );
+                    // until SERVER-109 this is never a covered index match, so don't constrain index key for $or matchers
+                    _orMatchers.push_back( shared_ptr< Matcher >( new Matcher( f.embeddedObject(), BSONObj(), true ) ) );
                 }
                 break;
             }            
 
             if ( ( e.type() == CodeWScope || e.type() == Code || e.type() == String ) && strcmp(e.fieldName(), "$where")==0 ) {
                 // $where: function()...
-                uassert( 10066 ,  "$where occurs twice?", where == 0 );
-                uassert( 10067 ,  "$where query, but no script engine", globalScriptEngine );
+                uassert( 10066 , "$where occurs twice?", where == 0 );
+                uassert( 10067 , "$where query, but no script engine", globalScriptEngine );
+                massert( 13089 , "no current client needed for $where" , haveClient() ); 
                 where = new Where();
                 where->scope = globalScriptEngine->getPooledScope( cc().ns() );
                 where->scope->localConnect( cc().database()->name.c_str() );
@@ -716,21 +682,6 @@ namespace mongo {
         /* assuming there is usually only one thing to match.  if more this
         could be slow sometimes. */
 
-        // for now $or must be the only top level field if present
-        if ( _orMatchers.size() > 0 ) {
-            for( vector< shared_ptr< Matcher > >::const_iterator i = _orMatchers.begin();
-                i != _orMatchers.end(); ++i ) {
-                if( details ) {
-                    // just to be safe - may not be strictly necessary.
-                    details->reset();
-                }
-                if ( (*i)->matches( jsobj, details ) ) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        
         // check normal non-regex cases:
         for ( unsigned i = 0; i < basics.size(); i++ ) {
             ElementMatcher& bm = basics[i];
@@ -773,6 +724,23 @@ namespace mongo {
                 return false;
         }
         
+        if ( _orMatchers.size() > 0 ) {
+            bool match = false;
+            for( vector< shared_ptr< Matcher > >::const_iterator i = _orMatchers.begin();
+                i != _orMatchers.end(); ++i ) {
+                // SERVER-205 don't submit details - we don't want to track field
+                // matched within $or, and at this point we've already loaded the
+                // whole document
+                if ( (*i)->matches( jsobj ) ) {
+                    match = true;
+                    break;
+                }
+            }
+            if ( !match ) {
+                return false;
+            }
+        }
+                
         if ( where ) {
             if ( where->func == 0 ) {
                 uassert( 10070 , "$where compile error", false);
@@ -801,7 +769,7 @@ namespace mongo {
             return where->scope->getBoolean( "return" ) != 0;
 
         }
-
+        
         return true;
     }
 
@@ -811,6 +779,35 @@ namespace mongo {
                 return true;
         return false;
     }
+
+    /*- just for testing -- */
+#pragma pack(1)
+    struct JSObj1 {
+        JSObj1() {
+            totsize=sizeof(JSObj1);
+            n = NumberDouble;
+            strcpy_s(nname, 5, "abcd");
+            N = 3.1;
+            s = String;
+            strcpy_s(sname, 7, "abcdef");
+            slen = 10;
+            strcpy_s(sval, 10, "123456789");
+            eoo = EOO;
+        }
+        unsigned totsize;
+
+        char n;
+        char nname[5];
+        double N;
+
+        char s;
+        char sname[7];
+        unsigned slen;
+        char sval[10];
+
+        char eoo;
+    };
+#pragma pack()
 
     struct JSObj1 js1;
 

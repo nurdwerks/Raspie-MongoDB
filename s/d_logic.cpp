@@ -34,6 +34,8 @@
 
 #include "../util/queue.h"
 
+#include "shard.h"
+
 using namespace std;
 
 namespace mongo {
@@ -61,7 +63,7 @@ namespace mongo {
             return e._numberLong();
 
         
-        errmsg = "version is not a numberic type";
+        errmsg = "version is not a numeric type";
         return 0;
     }
 
@@ -317,7 +319,7 @@ namespace mongo {
             {
                 dbtemprelease unlock;
                 
-                ScopedDbConnection conn( to );
+                ShardConnection conn( to );
                 ok = conn->runCommand( "admin" , 
                                             BSON( "startCloneCollection" << ns <<
                                                   "from" << from <<
@@ -398,7 +400,7 @@ namespace mongo {
             {
                 dbtemprelease unlock;
                 
-                ScopedDbConnection conn( to );
+                ShardConnection conn( to );
                 ok = conn->runCommand( "admin" , 
                                        BSON( "finishCloneCollection" << finishToken ) ,
                                        res );

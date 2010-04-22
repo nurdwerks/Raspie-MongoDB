@@ -37,7 +37,7 @@ namespace mongo {
 
     class FeaturesCmd : public Command {
     public:
-        FeaturesCmd() : Command( "features" ){}
+        FeaturesCmd() : Command( "features", true ){}
 
         virtual bool slaveOk(){ return true; }
         virtual bool readOnly(){ return true; }
@@ -190,7 +190,7 @@ namespace mongo {
                         else ss << " (OK)";
                         ss << '\n';
                     }
-                    ss << "  " << n << " objects found, nobj:" << d->nrecords << "\n";
+                    ss << "  " << n << " objects found, nobj:" << d->nrecords << '\n';
                     ss << "  " << len << " bytes data w/headers\n";
                     ss << "  " << nlen << " bytes data wout/headers\n";
                 }

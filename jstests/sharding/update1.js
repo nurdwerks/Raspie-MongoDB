@@ -29,5 +29,11 @@ coll.find().forEach(function(x){
 });
 
 
+coll.update({_id:1, key:1}, {$set: {key:2}});
+err = db.getLastErrorObj();
+assert.eq(coll.findOne({_id:1}).key, 1, 'key unchanged');
+assert.eq(err.code, 13123, 'key error code 1');
+assert.eq(err.code, 13123, 'key error code 2');
+
 s.stop()
 

@@ -22,6 +22,7 @@
 #include "../stdafx.h"
 #include "dbclient.h"
 #include "../db/dbmessage.h"
+#include "../db/matcher.h"
 
 namespace mongo {
 
@@ -91,6 +92,82 @@ namespace mongo {
         BSONObj _orderObject;
     };
 
+    class FilteringClientCursor {
+    public:
+        FilteringClientCursor( const BSONObj filter = BSONObj() );
+        FilteringClientCursor( auto_ptr<DBClientCursor> cursor , const BSONObj filter = BSONObj() );
+        ~FilteringClientCursor();
+        
+        void reset( auto_ptr<DBClientCursor> cursor );
+        
+        bool more();
+        BSONObj next();
+        
+        BSONObj peek();
+    private:
+        void _advance();
+        
+        Matcher _matcher;
+        auto_ptr<DBClientCursor> _cursor;
+        
+        BSONObj _next;
+        bool _done;
+    };
+
+
+    class Servers {
+    public:
+        Servers(){
+        }
+        
+        void add( const ServerAndQuery& s ){
+            add( s._server , s._extra );
+        }
+        
+        void add( const string& server , const BSONObj& filter ){
+            vector<BSONObj>& mine = _filters[server];
+            mine.push_back( filter.getOwned() );
+        }
+        
+        // TOOO: pick a less horrible name
+        class View {
+            View( const Servers* s ){
+                for ( map<string, vector<BSONObj> >::const_iterator i=s->_filters.begin(); i!=s->_filters.end(); ++i ){
+                    _servers.push_back( i->first );
+                    _filters.push_back( i->second );
+                }
+            }
+        public:
+            int size() const {
+                return _servers.size();
+            }
+
+            string getServer( int n ) const {
+                return _servers[n];
+            }
+
+            vector<BSONObj> getFilter( int n ) const {
+                return _filters[ n ];
+            }
+            
+        private:
+            vector<string> _servers;
+            vector< vector<BSONObj> > _filters;
+
+            friend class Servers;
+        };
+
+        View view() const {
+            return View( this );
+        }
+        
+
+    private:
+        map<string, vector<BSONObj> > _filters;
+
+        friend class View;
+    };
+
 
     /**
      * runs a query in serial across any number of servers
@@ -106,7 +183,9 @@ namespace mongo {
         vector<ServerAndQuery> _servers;
         unsigned _serverIndex;
         
-        auto_ptr<DBClientCursor> _current;
+        FilteringClientCursor _current;
+        
+        int _needToSkip;
     };
 
 
@@ -126,14 +205,12 @@ namespace mongo {
     private:
         void _init();
         
-        void advance();
-
         int _numServers;
         set<ServerAndQuery> _servers;
         BSONObj _sortKey;
-
-        auto_ptr<DBClientCursor> * _cursors;
-        BSONObj * _nexts;
+        
+        FilteringClientCursor * _cursors;
+        int _needToSkip;
     };
 
     /**

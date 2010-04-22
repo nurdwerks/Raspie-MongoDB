@@ -991,16 +991,19 @@ namespace mongo {
         static bool initial( const IndexDetails& id , const Geo2dType * spec , 
                              BtreeLocation& min , BtreeLocation&  max , 
                              GeoHash start ,
-                             int & found , GeoAccumulator * hopper ){
+                             int & found , GeoAccumulator * hopper )
+        {
             
+            Ordering ordering = Ordering::make(spec->_order);
+
             min.bucket = id.head.btree()->locate( id , id.head , start.wrap() , 
-                                                  spec->_order , min.pos , min.found , minDiskLoc );
+                                                  ordering , min.pos , min.found , minDiskLoc );
             min.checkCur( found , hopper );
             max = min;
             
             if ( min.bucket.isNull() ){
                 min.bucket = id.head.btree()->locate( id , id.head , start.wrap() , 
-                                                      spec->_order , min.pos , min.found , minDiskLoc , -1 );
+                                                      ordering , min.pos , min.found , minDiskLoc , -1 );
                 min.checkCur( found , hopper );
             }
             
@@ -1012,7 +1015,7 @@ namespace mongo {
     public:
         GeoSearch( const Geo2dType * g , const GeoHash& n , int numWanted=100 , BSONObj filter=BSONObj() , double maxDistance = numeric_limits<double>::max() )
             : _spec( g ) , _n( n ) , _start( n ) ,
-              _numWanted( numWanted ) , _filter( filter ) , 
+              _numWanted( numWanted ) , _filter( filter ) , _maxDistance( maxDistance ) ,
               _hopper( new GeoHopper( g , numWanted , n , filter , maxDistance ) )
         {
             assert( g->getDetails() );
@@ -1053,6 +1056,10 @@ namespace mongo {
                     if ( ! _prefix.constrains() )
                         break;
                     _prefix = _prefix.up();
+                    
+                    double temp = _spec->distance( _prefix , _start );
+                    if ( temp > ( _maxDistance * 2 ) )
+                        break;
                 }
             }
             GEODEBUG( "done part 1" );
@@ -1100,7 +1107,7 @@ namespace mongo {
             }
 
             BtreeLocation loc;
-            loc.bucket = id.head.btree()->locate( id , id.head , toscan.wrap() , _spec->_order , 
+            loc.bucket = id.head.btree()->locate( id , id.head , toscan.wrap() , Ordering::make(_spec->_order) , 
                                                         loc.pos , loc.found , minDiskLoc );
             loc.checkCur( _found , _hopper.get() );
             while ( loc.hasPrefix( toscan ) && loc.advance( 1 , _found , _hopper.get() ) )
@@ -1116,6 +1123,7 @@ namespace mongo {
         GeoHash _prefix;
         int _numWanted;
         BSONObj _filter;
+        double _maxDistance;
         shared_ptr<GeoHopper> _hopper;
 
         long long _nscanned;
@@ -1594,7 +1602,11 @@ namespace mongo {
             if ( cmdObj["query"].type() == Object )
                 filter = cmdObj["query"].embeddedObject();
 
-            GeoSearch gs( g , n , numWanted , filter );
+            double maxDistance = numeric_limits<double>::max();
+            if ( cmdObj["maxDistance"].isNumber() )
+                maxDistance = cmdObj["maxDistance"].number();
+
+            GeoSearch gs( g , n , numWanted , filter , maxDistance );
 
             if ( cmdObj["start"].type() == String){
                 GeoHash start = (string) cmdObj["start"].valuestr();

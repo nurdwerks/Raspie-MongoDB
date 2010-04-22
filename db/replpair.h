@@ -22,6 +22,7 @@
 #include "../client/dbclient.h"
 #include "repl.h"
 #include "cmdline.h"
+#include "repl/replset.h"
 
 namespace mongo {
 
@@ -101,6 +102,10 @@ namespace mongo {
 
     extern ReplPair *replPair;
 
+    inline void notMasterUnless(bool expr) { 
+        uassert( 10107 , "not master" , expr );
+    }
+
     /* note we always return true for the "local" namespace.
 
        we should not allow most operations when not the master
@@ -111,6 +116,11 @@ namespace mongo {
        If 'client' is not specified, the current client is used.
     */
     inline bool isMaster( const char *client = 0 ) {
+        if( replSet ) {
+            if( theReplSet ) return theReplSet->isMaster(client);
+            return false;
+        }
+
 		if( ! replSettings.slave ) 
 			return true;
 
@@ -140,6 +150,20 @@ namespace mongo {
         
         return strcmp( client, "local" ) == 0;
     }
+
+    /* we allow queries to SimpleSlave's -- but not to the slave (nonmaster) member of a replica pair 
+       so that queries to a pair are realtime consistent as much as possible.  use setSlaveOk() to 
+       query the nonmaster member of a replica pair.
+    */
+    inline void replVerifyReadsOk(ParsedQuery& pq) {
+        if( replSet ) {
+            uassert(13124, "not master - replSet still initializing", theReplSet); // during initialization, no queries allowed whatsover
+            notMasterUnless( theReplSet->isMaster("") || pq.hasOption( QueryOption_SlaveOk ) );
+            return;
+        }
+        notMasterUnless(isMaster() || pq.hasOption( QueryOption_SlaveOk ) || replSettings.slave == SimpleSlave);
+    }
+
     inline bool isMasterNs( const char *ns ) {
         char cl[ 256 ];
         nsToDatabase( ns, cl );

@@ -165,7 +165,17 @@ namespace mongo {
 #endif
     }
 
-
+    inline string terseCurrentTime(){
+        struct tm t;
+        time_t_to_Struct( time(0) , &t );
+        stringstream ss;
+        ss << ( 1900 + t.tm_year ) << "-"
+           << t.tm_mon << "-"
+           << t.tm_mday << "-"
+           << t.tm_hour << "-"
+           << t.tm_min;
+        return ss.str();
+    }
 
 #define asctime _asctime_not_threadsafe_
 #define gmtime _gmtime_not_threadsafe_
@@ -246,6 +256,11 @@ namespace mongo {
         Date_t(unsigned long long m): millis(m) {}
         operator unsigned long long&() { return millis; }
         operator const unsigned long long&() const { return millis; }
+        string toString() const { 
+            char buf[64];
+            time_t_to_String(millis, buf);
+            return buf;
+        }
     };
 
     inline Date_t jsTime() {
@@ -647,6 +662,20 @@ namespace mongo {
 
     inline bool isNumber( char c ) {
         return c >= '0' && c <= '9';
+    }
+
+    inline unsigned stringToNum(const char *str) {
+        unsigned x = 0;
+        const char *p = str;
+        while( 1 ) {
+            if( !isNumber(*p) ) {
+                if( *p == 0 && p != str )
+                    break;
+                throw 0;
+            }
+            x = x * 10 + *p++ - '0';
+        }
+        return x;
     }
     
     // for convenience, '{' is greater than anything and stops number parsing

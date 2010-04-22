@@ -29,7 +29,7 @@
 #include "json.h"
 #include "repl.h"
 #include "repl_block.h"
-#include "replset.h"
+#include "replpair.h"
 #include "commands.h"
 #include "db.h"
 #include "instance.h"
@@ -41,8 +41,6 @@
 #include "background.h"
 
 namespace mongo {
-
-    TicketHolder connTicketHolder( 20000 );
 
     extern int otherTraceLevel;
     void flushOpLog( stringstream &ss );
@@ -339,7 +337,7 @@ namespace mongo {
         virtual bool slaveOk() {
             return true;
         }
-        CmdServerStatus() : Command("serverStatus") {
+        CmdServerStatus() : Command("serverStatus", true) {
             started = time(0);
         }
         
@@ -452,7 +450,7 @@ namespace mongo {
             help << "check if any asserts have occurred on the server";
         }
         virtual LockType locktype(){ return WRITE; } 
-        CmdAssertInfo() : Command("assertinfo") {}
+        CmdAssertInfo() : Command("assertinfo",true) {}
         bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
             result.appendBool("dbasserted", lastAssert[0].isSet() || lastAssert[1].isSet() || lastAssert[2].isSet());
             result.appendBool("asserted", lastAssert[0].isSet() || lastAssert[1].isSet() || lastAssert[2].isSet() || lastAssert[3].isSet());
@@ -891,7 +889,7 @@ namespace mongo {
             return true;
         }
         virtual void help( stringstream& help ) const {
-            help << " example: { filemd5 : ObjectId(aaaaaaa) , key : { ts : 1 } }";
+            help << " example: { filemd5 : ObjectId(aaaaaaa) , root : \"fs\" }";
         }
         virtual LockType locktype(){ return READ; } 
         bool run(const char *dbname, BSONObj& jsobj, string& errmsg, BSONObjBuilder& result, bool fromRepl ){
@@ -1844,6 +1842,7 @@ namespace mongo {
             stringstream ss;
             ss << "assertion: " << e.what();
             result.append( "errmsg" , ss.str() );
+            result.append( "code" , e.getCode() );
             return false;
         }
         

@@ -284,7 +284,7 @@ namespace mongo {
     // Alternatively, make this command admin-only?
     class CmdCursorInfo : public Command {
     public:
-        CmdCursorInfo() : Command( "cursorInfo" ) {}
+        CmdCursorInfo() : Command( "cursorInfo", true ) {}
         virtual bool slaveOk() { return true; }
         virtual void help( stringstream& help ) const {
             help << " example: { cursorInfo : 1 }";
@@ -297,5 +297,23 @@ namespace mongo {
             return true;
         }
     } cmdCursorInfo;
+    
+    void ClientCursorMonitor::run(){
+        Client::initThread("snapshotthread");
+        Client& client = cc();
+        
+        unsigned old = curTimeMillis();
+
+        while ( ! inShutdown() ){
+            unsigned now = curTimeMillis();
+            ClientCursor::idleTimeReport( now - old );
+            old = now;
+            sleepsecs(4);
+        }
+
+        client.shutdown();
+    }
+
+    ClientCursorMonitor clientCursorMonitor;
 
 } // namespace mongo

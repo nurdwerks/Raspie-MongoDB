@@ -24,7 +24,7 @@
 #include "../util/md5.hpp"
 #include "db.h"
 #include "repl.h"
-#include "replset.h"
+#include "replpair.h"
 #include "instance.h"
 #include "security.h"
 #include "stats/snapshots.h"
@@ -74,6 +74,12 @@ namespace mongo {
         return _bold ? "</b>" : "";
     }
 
+    bool execCommand( Command * c ,
+                      Client& client , int queryOptions , 
+                      const char *ns, BSONObj& cmdObj , 
+                      BSONObjBuilder& result, 
+                      bool fromRepl );
+
     class DbWebServer : public MiniWebServer {
     public:
         DbWebServer(const string& ip, int port)
@@ -86,24 +92,29 @@ namespace mongo {
 
             ss << bold(ClientCursor::byLocSize()>10000) << "Cursors byLoc.size(): " << ClientCursor::byLocSize() << bold() << '\n';
             ss << "\n<b>replication</b>\n";
-            ss << "master: " << replSettings.master << '\n';
-            ss << "slave:  " << replSettings.slave << '\n';
-            if ( replPair ) {
-                ss << "replpair:\n";
-                ss << replPair->getInfo();
+            if( replSet ) {
+                ss << "<a title=\"see replSetGetStatus link top of page\">--replSet mode</a>\n";
             }
-            bool seemCaughtUp = getInitialSyncCompleted();
-            if ( !seemCaughtUp ) ss << "<b>";
-            ss <<   "initialSyncCompleted: " << seemCaughtUp;
-            if ( !seemCaughtUp ) ss << "</b>";
-            ss << '\n';
+            else {
+                ss << "master: " << replSettings.master << '\n';
+                ss << "slave:  " << replSettings.slave << '\n';
+                if ( replPair ) {
+                    ss << "replpair:\n";
+                    ss << replPair->getInfo();
+                }
+                bool seemCaughtUp = getInitialSyncCompleted();
+                if ( !seemCaughtUp ) ss << "<b>";
+                ss <<   "initialSyncCompleted: " << seemCaughtUp;
+                if ( !seemCaughtUp ) ss << "</b>";
+                ss << '\n';
+            }
             
             auto_ptr<SnapshotDelta> delta = statsSnapshots.computeDelta();
             if ( delta.get() ){
-                ss << "\n<b>DBTOP  (occurences|percent of elapsed)</b>\n";
-                ss << "<table border=1>";
+                ss << "\n<b>dbtop</b> (occurences|percent of elapsed)\n";
+                ss << "<table border=1 cellpadding=2 cellspacing=0>";
                 ss << "<tr align='left'>";
-                ss << "<th>NS</th>"
+                ss << "<th><a title=\"namespace\">NS</a></th>"
                       "<th colspan=2>total</th>"
                       "<th colspan=2>Reads</th>"
                       "<th colspan=2>Writes</th>"
@@ -169,28 +180,30 @@ namespace mongo {
         
         void doUnlockedStuff(stringstream& ss) {
             /* this is in the header already ss << "port:      " << port << '\n'; */
-            ss << mongodVersion() << "\n";
-            ss << "git hash: " << gitVersion() << "\n";
-            ss << "sys info: " << sysInfo() << "\n";
-            ss << "\n";
-            ss << "dbwritelocked:  " << dbMutex.info().isLocked() << " (initial)\n";
-            ss << "uptime:    " << time(0)-started << " seconds\n";
+            ss << mongodVersion() << '\n';
+            ss << "git hash: " << gitVersion() << '\n';
+            ss << "sys info: " << sysInfo() << '\n';
+            ss << '\n';
+            ss << "<a title=\"snapshot: was the db in the write lock when this page was generated?\">";
+            ss << "write locked:</a> " << (dbMutex.info().isLocked() ? "true" : "false") << "\n";
+            ss << "uptime:       " << time(0)-started << " seconds\n";
             if ( replAllDead )
                 ss << "<b>replication replAllDead=" << replAllDead << "</b>\n";
-            ss << "\nassertions:\n";
+            ss << "\n";
+            ss << "<a title=\"information on caught assertion exceptions\">";
+            ss << "assertions:</a>\n";
             for ( int i = 0; i < 4; i++ ) {
                 if ( lastAssert[i].isSet() ) {
-                    ss << "<b>";
                     if ( i == 3 ) ss << "usererr";
                     else ss << i;
-                    ss << "</b>" << ' ' << lastAssert[i].toString();
+                    ss << ' ' << lastAssert[i].toString();
                 }
             }
 
             ss << "\nreplInfo:  " << replInfo << "\n\n";
 
             ss << "Clients:\n";
-            ss << "<table border=1>";
+            ss << "<table border=1 cellpadding=2 cellspacing=0>";
             ss << "<tr align='left'>"
                << "<th>Thread</th>" 
              
@@ -311,13 +324,12 @@ namespace mongo {
             const SockAddr &from
         )
         {
-            //out() << "url [" << url << "]" << endl;
-            
             if ( url.size() > 1 ) {
                 
                 if ( url.find( "/_status" ) == 0 ){
                     if ( ! allowed( rq , headers, from ) ){
                         responseCode = 401;
+                        headers.push_back( "Content-Type: text/plain" );
                         responseMsg = "not allowed\n";
                         return;
                     }              
@@ -327,16 +339,54 @@ namespace mongo {
                     return;
                 }
 
-                if ( ! cmdLine.rest ){
+                if ( ! cmdLine.rest ) {
                     responseCode = 403;
-                    responseMsg = "rest is not enabled.  use --rest to turn on";
+                    stringstream ss;
+                    ss << "REST is not enabled.  use --rest to turn on.\n";
+                    ss << "check that port " << _port << " is secured for the network too.\n";
+                    responseMsg = ss.str();
+                    headers.push_back( "Content-Type: text/plain" );
                     return;
                 }
+
+                /* run a command from the web ui */
+                const char *p = url.c_str();
+                if( *p == '/' ) {
+                    const char *h = strstr(p, "?text");
+                    string cmd = p+1;
+                    if( h && h > p+1 ) 
+                        cmd = string(p+1, h-p-1);
+                    const map<string,Command*> *m = Command::webCommands();
+                    if( m && m->count(cmd) ) {
+                        Command *c = m->find(cmd)->second;
+                        Client& client = cc();
+                        BSONObjBuilder result;
+                        BSONObjBuilder b;
+                        b.append(c->name, 1);
+                        BSONObj cmdObj = b.obj();
+                        bool ok = 
+                            execCommand(c, client, 0, "admin.", cmdObj, result, false);
+                        responseCode = ok ? 200 : 500;
+                        string j = result.done().jsonString(JS, h != 0 ? 1 : 0);
+                        if( h == 0 ) { 
+                            headers.push_back( "Content-Type: application/json" );
+                        }
+                        else { 
+                            headers.push_back( "Content-Type: text/plain" );
+                        }
+                        responseMsg = j;
+                        if( h ) 
+                            responseMsg += '\n';
+                        return;
+
+                    }
+                }
+
                 if ( ! allowed( rq , headers, from ) ){
                     responseCode = 401;
                     responseMsg = "not allowed\n";
                     return;
-                }                
+                }
                 handleRESTRequest( rq , url , responseMsg , responseCode , headers );
                 return;
             }
@@ -349,11 +399,23 @@ namespace mongo {
             string dbname;
             {
                 stringstream z;
-                z << "mongodb " << getHostName() << ':' << mongo::cmdLine.port << ' ';
+                z << "mongod " << getHostName() << ":" << mongo::cmdLine.port;
                 dbname = z.str();
             }
-            ss << dbname << "</title></head><body><h2>" << dbname << "</h2><p>\n<pre>";
-
+            ss << dbname << "</title></head><body><h2>" << dbname << "</h2>\n";
+            ss << "<pre>";
+            //ss << "<a href=\"/_status\">_status</a>";
+            {
+                const map<string, Command*> *m = Command::webCommands();
+                if( m ) {
+                    for( map<string, Command*>::const_iterator i = m->begin(); i != m->end(); i++ ) { 
+                        ss << "<a href=\"/" << i->first << "?text\">" << i->first << "</a> ";
+                    }
+                    ss << '\n';
+                }
+            }
+            ss << '\n';
+            ss << "rest/admin port:" << _port << "\n";
             doUnlockedStuff(ss);
 
             {
@@ -530,7 +592,7 @@ namespace mongo {
             if ( one ) {
                 if ( cursor->more() ) {
                     BSONObj obj = cursor->next();
-                    out << obj.jsonString() << "\n";
+                    out << obj.jsonString() << '\n';
                 }
                 else {
                     responseCode = 404;
@@ -554,7 +616,7 @@ namespace mongo {
 
             out << "  \"total_rows\" : " << howMany << " ,\n";
             out << "  \"query\" : " << query.jsonString() << " ,\n";
-            out << "  \"millis\" : " << t.millis() << "\n";
+            out << "  \"millis\" : " << t.millis() << '\n';
             out << "}\n";
         }
 

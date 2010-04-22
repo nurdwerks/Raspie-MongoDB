@@ -58,8 +58,15 @@ namespace mongo {
         ScopedDbConnection conn( server );
         checkShardVersion( conn.conn() , _ns );
 
-        log(5) << "ClusteredCursor::query  server:" << server << " ns:" << _ns << " query:" << q << " num:" << num << " _fields:" << _fields << " options: " << _options << endl;
-        auto_ptr<DBClientCursor> cursor = conn->query( _ns.c_str() , q , num , 0 , ( _fields.isEmpty() ? 0 : &_fields ) , _options );
+        if ( logLevel >= 5 ){
+            log(5) << "ClusteredCursor::query (" << type() << ") server:" << server 
+                   << " ns:" << _ns << " query:" << q << " num:" << num << 
+                " _fields:" << _fields << " options: " << _options << endl;
+        }
+        
+        auto_ptr<DBClientCursor> cursor = 
+            conn->query( _ns.c_str() , q , num , 0 , ( _fields.isEmpty() ? 0 : &_fields ) , _options );
+        
         if ( cursor->hasResultFlag( QueryResult::ResultFlag_ShardConfigStale ) )
             throw StaleConfigException( _ns , "ClusteredCursor::query" );
 
@@ -95,6 +102,68 @@ namespace mongo {
     }
 
     
+    // --------  FilteringClientCursor -----------
+    FilteringClientCursor::FilteringClientCursor( const BSONObj filter )
+        : _matcher( filter ) , _done( false ){
+    }
+
+    FilteringClientCursor::FilteringClientCursor( auto_ptr<DBClientCursor> cursor , const BSONObj filter )
+        : _matcher( filter ) , _cursor( cursor ) , _done( cursor.get() == 0 ){
+    }
+    
+    FilteringClientCursor::~FilteringClientCursor(){
+    }
+        
+    void FilteringClientCursor::reset( auto_ptr<DBClientCursor> cursor ){
+        _cursor = cursor;
+        _next = BSONObj();
+        _done = _cursor.get() == 0;
+    }
+
+    bool FilteringClientCursor::more(){
+        if ( ! _next.isEmpty() )
+            return true;
+        
+        if ( _done )
+            return false;
+        
+        _advance();
+        return ! _next.isEmpty();
+    }
+    
+    BSONObj FilteringClientCursor::next(){
+        assert( ! _next.isEmpty() );
+        assert( ! _done );
+
+        BSONObj ret = _next;
+        _next = BSONObj();
+        _advance();
+        return ret;
+    }
+
+    BSONObj FilteringClientCursor::peek(){
+        if ( _next.isEmpty() )
+            _advance();
+        return _next;
+    }
+    
+    void FilteringClientCursor::_advance(){
+        assert( _next.isEmpty() );
+        if ( ! _cursor.get() || _done )
+            return;
+        
+        while ( _cursor->more() ){
+            _next = _cursor->next();
+            if ( _matcher.matches( _next ) ){
+                if ( ! _cursor->moreInCurrentBatch() )
+                    _next = _next.getOwned();
+                return;
+            }
+            _next = BSONObj();
+        }
+        _done = true;
+    }
+    
     // --------  SerialServerClusteredCursor -----------
     
     SerialServerClusteredCursor::SerialServerClusteredCursor( const set<ServerAndQuery>& servers , QueryMessage& q , int sortOrder) : ClusteredCursor( q ){
@@ -107,10 +176,21 @@ namespace mongo {
             sort( _servers.rbegin() , _servers.rend() );
         
         _serverIndex = 0;
+
+        _needToSkip = q.ntoskip;
     }
     
     bool SerialServerClusteredCursor::more(){
-        if ( _current.get() && _current->more() )
+        
+        // TODO: optimize this by sending on first query and then back counting
+        //       tricky in case where 1st server doesn't have any after
+        //       need it to send n skipped
+        while ( _needToSkip > 0 && _current.more() ){
+            _current.next();
+            _needToSkip--;
+        }
+        
+        if ( _current.more() )
             return true;
         
         if ( _serverIndex >= _servers.size() ){
@@ -119,17 +199,13 @@ namespace mongo {
         
         ServerAndQuery& sq = _servers[_serverIndex++];
 
-        _current = query( sq._server , 0 , sq._extra );
-        if ( _current->more() )
-            return true;
-        
-        // this sq has nothing, so keep looking
+        _current.reset( query( sq._server , 0 , sq._extra ) );
         return more();
     }
     
     BSONObj SerialServerClusteredCursor::next(){
         uassert( 10018 ,  "no more items" , more() );
-        return _current->next();
+        return _current.next();
     }
 
     // --------  ParallelSortClusteredCursor -----------
@@ -138,6 +214,7 @@ namespace mongo {
                                                               const BSONObj& sortKey ) 
         : ClusteredCursor( q ) , _servers( servers ){
         _sortKey = sortKey.getOwned();
+        _needToSkip = q.ntoskip;
         _init();
     }
 
@@ -146,85 +223,74 @@ namespace mongo {
                                                               int options , const BSONObj& fields  )
         : ClusteredCursor( ns , q.obj , options , fields ) , _servers( servers ){
         _sortKey = q.getSort().copy();
+        _needToSkip = 0;
         _init();
     }
 
     void ParallelSortClusteredCursor::_init(){
         _numServers = _servers.size();
-        _cursors = new auto_ptr<DBClientCursor>[_numServers];
-        _nexts = new BSONObj[_numServers];
+        _cursors = new FilteringClientCursor[_numServers];
             
         // TODO: parellize
         int num = 0;
         for ( set<ServerAndQuery>::iterator i = _servers.begin(); i!=_servers.end(); i++ ){
             const ServerAndQuery& sq = *i;
-            _cursors[num++] = query( sq._server , 0 , sq._extra );
+            _cursors[num++].reset( query( sq._server , 0 , sq._extra ) );
         }
             
     }
     
     ParallelSortClusteredCursor::~ParallelSortClusteredCursor(){
         delete [] _cursors;
-        delete [] _nexts;
     }
 
     bool ParallelSortClusteredCursor::more(){
-        for ( int i=0; i<_numServers; i++ ){
-            if ( ! _nexts[i].isEmpty() )
-                return true;
 
-            if ( _cursors[i].get() && _cursors[i]->more() )
+        if ( _needToSkip > 0 ){
+            int n = _needToSkip;
+            _needToSkip = 0;
+            
+            while ( n > 0 && more() ){
+                next();
+                n--;
+            }
+        }
+        
+        for ( int i=0; i<_numServers; i++ ){
+            if ( _cursors[i].more() )
                 return true;
         }
         return false;
     }
         
     BSONObj ParallelSortClusteredCursor::next(){
-        advance();
-            
         BSONObj best = BSONObj();
         int bestFrom = -1;
             
         for ( int i=0; i<_numServers; i++){
-            if ( _nexts[i].isEmpty() )
+            if ( ! _cursors[i].more() )
                 continue;
+            
+            BSONObj me = _cursors[i].peek();
 
             if ( best.isEmpty() ){
-                best = _nexts[i];
+                best = me;
                 bestFrom = i;
                 continue;
             }
                 
-            int comp = best.woSortOrder( _nexts[i] , _sortKey );
+            int comp = best.woSortOrder( me , _sortKey );
             if ( comp < 0 )
                 continue;
                 
-            best = _nexts[i];
+            best = me;
             bestFrom = i;
         }
-            
+        
         uassert( 10019 ,  "no more elements" , ! best.isEmpty() );
-        _nexts[bestFrom] = BSONObj();
+        _cursors[bestFrom].next();
             
         return best;
-    }
-
-    void ParallelSortClusteredCursor::advance(){
-        for ( int i=0; i<_numServers; i++ ){
-
-            if ( ! _nexts[i].isEmpty() ){
-                // already have a good object there
-                continue;
-            }
-                
-            if ( ! _cursors[i]->more() ){
-                // cursor is dead, oh well
-                continue;
-            }
-
-            _nexts[i] = _cursors[i]->next();
-        }
-            
     }
 
     // -----------------

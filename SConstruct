@@ -364,7 +364,7 @@ commonFiles += [ "util/background.cpp" , "util/mmap.cpp" , "util/ramstore.cpp", 
                  "util/assert_util.cpp" , "util/httpclient.cpp" , "util/md5main.cpp" , "util/base64.cpp", "util/debug_util.cpp",
                  "util/thread_pool.cpp" ]
 commonFiles += Glob( "util/*.c" )
-commonFiles += Split( "client/connpool.cpp client/dbclient.cpp client/model.cpp client/parallel.cpp client/syncclusterconnection.cpp" )
+commonFiles += Split( "client/connpool.cpp client/dbclient.cpp client/model.cpp client/syncclusterconnection.cpp" )
 commonFiles += [ "scripting/engine.cpp" , "scripting/utils.cpp" ]
 
 #mmap stuff
@@ -382,13 +382,16 @@ else:
     commonFiles += [ "util/processinfo_none.cpp" ]
 
 coreDbFiles = [ "db/commands.cpp" ]
-coreServerFiles = [ "util/message_server_port.cpp" , "util/message_server_asio.cpp" ]
+coreServerFiles = [ "util/message_server_port.cpp" , "util/message_server_asio.cpp" , 
+                    "client/parallel.cpp" ,  
+                    "db/matcher.cpp" , "db/indexkey.cpp" ]
 
-serverOnlyFiles = Split( "db/query.cpp db/update.cpp db/introspect.cpp db/btree.cpp db/clientcursor.cpp db/tests.cpp db/repl.cpp db/oplog.cpp db/repl_block.cpp db/btreecursor.cpp db/cloner.cpp db/namespace.cpp db/matcher.cpp db/dbeval.cpp db/dbwebserver.cpp db/dbhelpers.cpp db/instance.cpp db/database.cpp db/pdfile.cpp db/cursor.cpp db/security_commands.cpp db/client.cpp db/security.cpp util/miniwebserver.cpp db/storage.cpp db/reccache.cpp db/queryoptimizer.cpp db/extsort.cpp db/mr.cpp s/d_util.cpp db/cmdline.cpp" )
+serverOnlyFiles = Split( "db/query.cpp db/update.cpp db/introspect.cpp db/btree.cpp db/clientcursor.cpp db/tests.cpp db/repl.cpp db/repl/replset.cpp db/repl/replset_commands.cpp db/repl/health.cpp db/repl/rs_config.cpp db/oplog.cpp db/repl_block.cpp db/btreecursor.cpp db/cloner.cpp db/namespace.cpp db/matcher_covered.cpp db/dbeval.cpp db/dbwebserver.cpp db/dbhelpers.cpp db/instance.cpp db/client.cpp db/database.cpp db/pdfile.cpp db/cursor.cpp db/security_commands.cpp db/security.cpp util/miniwebserver.cpp db/storage.cpp db/reccache.cpp db/queryoptimizer.cpp db/extsort.cpp db/mr.cpp s/d_util.cpp db/cmdline.cpp" )
+
 serverOnlyFiles += [ "db/index.cpp" ] + Glob( "db/index_*.cpp" )
 
 serverOnlyFiles += Glob( "db/dbcommands*.cpp" )
-serverOnlyFiles += Glob( "db/stats/*.cpp" )
+coreServerFiles += Glob( "db/stats/*.cpp" )
 serverOnlyFiles += [ "db/driverHelpers.cpp" ]
 
 if usesm:
@@ -404,7 +407,7 @@ else:
     nojni = True
 
 coreShardFiles = []
-shardServerFiles = coreShardFiles + Glob( "s/strategy*.cpp" ) + [ "s/commands_admin.cpp" , "s/commands_public.cpp" , "s/request.cpp" ,  "s/cursors.cpp" ,  "s/server.cpp" , "s/chunk.cpp" , "s/shardkey.cpp" , "s/config.cpp" , "s/s_only.cpp" , "db/cmdline.cpp" ]
+shardServerFiles = coreShardFiles + Glob( "s/strategy*.cpp" ) + [ "s/commands_admin.cpp" , "s/commands_public.cpp" , "s/request.cpp" ,  "s/cursors.cpp" ,  "s/server.cpp" , "s/chunk.cpp" , "s/shardkey.cpp" , "s/config.cpp" , "s/config_migrate.cpp" , "s/s_only.cpp" , "s/stats.cpp" , "s/balance.cpp" , "db/cmdline.cpp" ]
 serverOnlyFiles += coreShardFiles + [ "s/d_logic.cpp" ]
 
 serverOnlyFiles += [ "db/module.cpp" ] + Glob( "db/modules/*.cpp" )
@@ -1111,11 +1114,11 @@ def checkErrorCodes():
 checkErrorCodes()
 
 # main db target
-mongod = env.Program( "mongod" , commonFiles + coreDbFiles + serverOnlyFiles + [ "db/db.cpp" ] )
+mongod = env.Program( "mongod" , commonFiles + coreDbFiles + coreServerFiles + serverOnlyFiles + [ "db/db.cpp" ] )
 Default( mongod )
 
 # tools
-allToolFiles = commonFiles + coreDbFiles + serverOnlyFiles + [ "client/gridfs.cpp", "tools/tool.cpp" ]
+allToolFiles = commonFiles + coreDbFiles + coreServerFiles + serverOnlyFiles + [ "client/gridfs.cpp", "tools/tool.cpp" ]
 normalTools = [ "dump" , "restore" , "export" , "import" , "files" , "stat" ]
 env.Alias( "tools" , [ "mongo" + x for x in normalTools ] )
 for x in normalTools:
@@ -1130,7 +1133,7 @@ mongos = env.Program( "mongos" , commonFiles + coreDbFiles + coreServerFiles + s
 clientLibName = str( env.Library( "mongoclient" , allClientFiles )[0] )
 if GetOption( "sharedclient" ):
     sharedClientLibName = str( env.SharedLibrary( "mongoclient" , allClientFiles )[0] )
-env.Library( "mongotestfiles" , commonFiles + coreDbFiles + serverOnlyFiles + ["client/gridfs.cpp"])
+env.Library( "mongotestfiles" , commonFiles + coreDbFiles + coreServerFiles + serverOnlyFiles + ["client/gridfs.cpp"])
 
 clientTests = []
 
@@ -1205,6 +1208,7 @@ elif not onlyServer:
         for f in allClientFiles:
             shell32BitFiles.append( "32bit/" + str( f ) )
         shellEnv.VariantDir( "32bit" , "." )
+        shellEnv.Append( CPPPATH=["32bit/"] )
     else:
         shellEnv.Prepend( LIBPATH=[ "." ] )
 
