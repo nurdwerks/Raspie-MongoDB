@@ -27,12 +27,13 @@ namespace mongo {
    }
 
    template<> inline double littleEndian( double j ) {
-      return littleEndian<unsigned long long>(
-           *reinterpret_cast<unsigned long long*>( &j ) );
+      unsigned long long* toSwap = reinterpret_cast<unsigned long long*>( &j );
+      *toSwap = littleEndian<unsigned long long>( *toSwap );
+      return *reinterpret_cast<double*>( toSwap );
    }
   
    template<class T> void copyLE( char* dest, T src ) {
-#ifdef BOOST_LITTLE_ENDIAN
+#if defined(BOOST_LITTLE_ENDIAN) && !defined( ALIGNMENT_IMPORTANT )
       // This also assumes no alignment issues
       *reinterpret_cast<T*>(dest) = src;
 #else
@@ -46,22 +47,22 @@ namespace mongo {
       copyLE<unsigned long long>( dest, *reinterpret_cast<unsigned long long*>( &src ) );
    }
 
+   template<> inline void copyLE<bool>( char* dest, bool src ) {
+      *dest = src;
+   }
+
    template<class T> void copyLE( void* dest, T src ) {
       copyLE<T>( reinterpret_cast<char*>( dest ), src );
    }
    
-   inline void copyLE( char* dest, bool src ) {
-      *dest = src;
-   }
-
    template<class T> T readLE( const char* data ) {
-#ifdef BOOST_LITTLE_ENDIAN
+#if defined(BOOST_LITTLE_ENDIAN) && !defined( ALIGNMENT_IMPORTANT )
       return *reinterpret_cast<const T*>( data );
 #else
       T retval = 0;
+      const unsigned char* u_data = reinterpret_cast<const unsigned char*>( data );
       for( unsigned i = 0; i < sizeof( T ); ++i ) {
-         unsigned char cur_byte = data[i];
-         retval |= T( cur_byte ) << ( 8 * i);
+         retval |= T( u_data[i] ) << ( 8 * i );
       }
       return retval;
 #endif
