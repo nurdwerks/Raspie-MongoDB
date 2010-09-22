@@ -794,15 +794,15 @@ namespace mongo {
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
-        unsigned totsize;
+        storageLE<unsigned> totsize;
 
         char n;
         char nname[5];
-        double N;
+        storageLE<double> N;
 
         char s;
         char sname[7];
-        unsigned slen;
+        storageLE<unsigned> slen;
         char sval[10];
 
         char eoo;
@@ -814,17 +814,17 @@ namespace mongo {
 #pragma pack(1)
     struct JSObj2 {
         JSObj2() {
-            totsize = littleEndian<unsigned>( sizeof(JSObj2) );
+            totsize = sizeof(JSObj2);
             s = String;
             strcpy_s(sname, 7, "abcdef");
-            slen = littleEndian<unsigned> ( 10 );
+            slen = 10;
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
-        unsigned totsize;
+        storageLE<unsigned> totsize;
         char s;
         char sname[7];
-        unsigned slen;
+        storageLE<unsigned> slen;
         char sval[10];
         char eoo;
     } js2;
