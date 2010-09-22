@@ -195,7 +195,7 @@ namespace mongo {
         }
         /** @return total size of the BSON object in bytes */
         int objsize() const {
-            return *(reinterpret_cast<const int*>(objdata()));
+            return readLE< int >(objdata());
         }
 
         /** performs a cursory check on the object's size only. */
@@ -370,7 +370,7 @@ private:
                 len = 5;
                 jstype = EOO;
             }
-            int len;
+            storageLE<int> len;
             char jstype;
         } emptyObject;
 #pragma pack()
