@@ -60,7 +60,8 @@ namespace mongo {
       return *reinterpret_cast<const T*>( data );
 #else
       T retval = 0;
-      const unsigned char* u_data = reinterpret_cast<const unsigned char*>( data );
+      const unsigned char* u_data = 
+            reinterpret_cast<const unsigned char*>( data );
       for( unsigned i = 0; i < sizeof( T ); ++i ) {
          retval |= T( u_data[i] ) << ( 8 * i );
       }
