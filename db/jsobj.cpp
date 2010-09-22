@@ -1533,9 +1533,9 @@ namespace mongo {
         data[3] = T[0];
 
         if (max)
-            *(long long*)(data + 4) = 0xFFFFFFFFFFFFFFFFll;
+            copyLE<long long>( data + 4, 0xFFFFFFFFFFFFFFFFll );
         else
-            *(long long*)(data + 4) = 0x0000000000000000ll;
+            copyLE<long long>( data + 4, 0x0000000000000000ll );
     }
 
     time_t OID::asTimeT(){
