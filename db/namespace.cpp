@@ -136,7 +136,7 @@ namespace mongo {
     void NamespaceDetails::addDeletedRec(DeletedRecord *d, DiskLoc dloc) {
         {
             // defensive code: try to make us notice if we reference a deleted record
-            (unsigned&) (((Record *) d)->data) = 0xeeeeeeee;
+            copyLE<unsigned>( ((Record *) d)->data, 0xeeeeeeee );
         }
         dassert( dloc.drec() == d );
         DEBUGGING out() << "TEMP: add deleted rec " << dloc.toString() << ' ' << hex << d->extentOfs << endl;
