@@ -129,8 +129,7 @@ namespace mongo {
         }
         
         int getInt( int num ) const {
-            const int * foo = (const int*)afterNS();
-            return foo[num];
+            return readLE<int>( afterNS() + 4 * num );
         }
 
         int getQueryNToReturn() const {
