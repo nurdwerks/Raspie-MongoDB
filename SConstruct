@@ -810,9 +810,25 @@ def CheckFetchAndAdd( context ):
 """, ".c" )
     context.Result( res )
     return res
+
+def CheckAlignment( context ):
+    oldCFLAGS = context.env['CFLAGS']
+    context.env['CFLAGS'] = " -Wcast-align -Werror "
+    context.Message( 'Checking if alignment is important ...' )
+    res = context.TryLink( """
+          int main(int argc, char** argv)
+          {
+              int* y = (int*)argv[0];
+              return *y;
+          }
+""", ".c" )
+    context.env['CFLAGS'] = oldCFLAGS
+    res = not res
+    context.Result( res )
+    return res
    
 def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
-    conf = Configure(myenv, custom_tests = { 'CheckFetchAndAdd' : CheckFetchAndAdd } )
+    conf = Configure(myenv, custom_tests = { 'CheckFetchAndAdd' : CheckFetchAndAdd, 'CheckAlignment' : CheckAlignment } )
     myenv["LINKFLAGS_CLEAN"] = list( myenv["LINKFLAGS"] )
     myenv["LIBS_CLEAN"] = list( myenv["LIBS"] )
 
@@ -1002,6 +1018,9 @@ def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
     # Look for __sync_add_and_fetch and __sync_fetch_and_add
     if conf.CheckFetchAndAdd():
         env.Append( CPPFLAGS=" -DHAVE_SYNC_FETCH_AND_ADD" );
+    # Check if natural alignment is important
+    if conf.CheckAlignment():
+        env.Append( CPPFLAGS=" -DALIGNMENT_IMPORTANT" );
        
 
     myenv.Append(LINKCOM=" $STATICFILES")
