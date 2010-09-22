@@ -97,8 +97,8 @@ namespace mongo {
         }
 
         char *p = r->data;
-        memcpy(p, partial.objdata(), posz);        
-        *((unsigned *)p) += obj.objsize() + 1 + 2;
+        memcpy(p, partial.objdata(), posz);
+        copyLE<unsigned>( p, readLE<int>( p ) + obj.objsize() + 1 + 2 );
         p += posz - 1;
         *p++ = (char) Object;
         *p++ = 'o';
