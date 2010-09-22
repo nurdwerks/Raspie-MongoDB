@@ -62,7 +62,7 @@ public:
     string jsonString( JsonStringFormat format, bool includeFieldNames = true, int pretty = 0 ) const;
 
     /** Returns the type of the element */
-    BSONType type() const { return (BSONType) *data; }
+    BSONType type() const { return (BSONType) *reinterpret_cast<const signed char*>(data); }
         
     /** returns the tyoe of the element fixed for the main type
         the main purpose is numbers.  any numeric type will return NumberDouble
@@ -117,7 +117,7 @@ public:
         Ensure element is of type Date before calling.
     */
     Date_t date() const {
-        return *reinterpret_cast< const Date_t* >( value() );
+        return readLE<unsigned long long>( value() );
     }
 
     /** Convert the value to boolean, regardless of its type, in a javascript-like fashion 
@@ -132,11 +132,11 @@ public:
     bool isNumber() const;
 
     /** Return double value for this field. MUST be NumberDouble type. */
-    double _numberDouble() const {return *reinterpret_cast< const double* >( value() ); }
+    double _numberDouble() const {return readLE< double >( value() ); }
     /** Return double value for this field. MUST be NumberInt type. */
-    int _numberInt() const {return *reinterpret_cast< const int* >( value() ); }
+    int _numberInt() const {return readLE< int >( value() ); }
     /** Return double value for this field. MUST be NumberLong type. */
-    long long _numberLong() const {return *reinterpret_cast< const long long* >( value() ); }
+    long long _numberLong() const {return readLE< long long >( value() ); }
 
     /** Retrieve int value for the element safely.  Zero returned if not a number. */
     int numberInt() const;
@@ -163,12 +163,12 @@ public:
     /** Size (length) of a string element.  
         You must assure of type String first.  */
     int valuestrsize() const {
-        return *reinterpret_cast< const int* >( value() );
+        return readLE< int >( value() );
     }
 
     // for objects the size *includes* the size of the size field
     int objsize() const {
-        return *reinterpret_cast< const int* >( value() );
+        return readLE< int >( value() );
     }
 
     /** Get a string's value.  Also gives you start of the real data for an embedded object. 
@@ -301,15 +301,15 @@ public:
     }
 
     OpTime optime() const {
-        return OpTime( *reinterpret_cast< const unsigned long long* >( value() ) );
+        return OpTime( readLE< unsigned long long >( value() ) );
     }
 
     Date_t timestampTime() const{
-        unsigned long long t = ((unsigned int*)(value() + 4 ))[0];
+        unsigned long long t = readLE<unsigned int>( value() + 4 );
         return t * 1000;
     }
     unsigned int timestampInc() const{
-        return ((unsigned int*)(value() ))[0];
+        return readLE<unsigned int>( value() );
     }
 
     const char * dbrefNS() const {
@@ -320,7 +320,7 @@ public:
     const mongo::OID& dbrefOID() const {
         uassert( 10064 ,  "not a dbref" , type() == DBRef );
         const char * start = value();
-        start += 4 + *reinterpret_cast< const int* >( start );
+        start += 4 + readLE< int >( start );
         return *reinterpret_cast< const mongo::OID* >( start );
     }
 
@@ -416,11 +416,11 @@ private:
     inline bool BSONElement::trueValue() const {
         switch( type() ) {
         case NumberLong:
-            return *reinterpret_cast< const long long* >( value() ) != 0;
+            return readLE< long long >( value() ) != 0;
         case NumberDouble:
-            return *reinterpret_cast< const double* >( value() ) != 0;
+            return readLE< double >( value() ) != 0;
         case NumberInt:
-            return *reinterpret_cast< const int* >( value() ) != 0;
+            return readLE< int >( value() ) != 0;
         case mongo::Bool:
             return boolean();
         case EOO:
@@ -466,9 +466,9 @@ private:
         case NumberDouble:
             return _numberDouble();
         case NumberInt:
-            return *reinterpret_cast< const int* >( value() );
+            return readLE< int >( value() );
         case NumberLong:
-            return (double) *reinterpret_cast< const long long* >( value() );
+            return (double) readLE< long long >( value() );
         default:
             return 0;
         }
