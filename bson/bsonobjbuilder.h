@@ -500,7 +500,7 @@ namespace mongo {
             b.append((char) EOO);
             char *data = b.buf() + offset_;
             int size = b.len() - offset_;
-            *((int*)data) = size;
+            copyLE<int>( data, size );
             if ( _tracker )
                 _tracker->got( size );
             return data;
