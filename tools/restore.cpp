@@ -164,7 +164,7 @@ public:
 
         while ( read < fileLength ) {
             file.read( buf , 4 );
-            int size = ((int*)buf)[0];
+            int size = readLE<int>(buf);
             if ( size >= BUF_SIZE ){
                 cerr << "got an object of size: " << size << "  terminating..." << endl;
             }

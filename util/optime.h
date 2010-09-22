@@ -42,12 +42,12 @@ namespace mongo {
             return secs;
         }
         OpTime(Date_t date) {
-            i = date.millis >> 32;
-            secs = date.millis;
+            i = date.millis;
+            secs = date.millis >> 32;
         }
         OpTime(unsigned long long date) {
-            i = date > 32;
-            secs = date;
+            i = date;
+            secs = date >> 32;
         }
         OpTime(unsigned a, unsigned b) {
             secs = a;
@@ -89,7 +89,7 @@ namespace mongo {
          bytes of overhead.
          */
         unsigned long long asDate() const {
-            return ( (unsigned long long) i ) << 32 | secs;
+            return ( (unsigned long long) secs ) << 32 | i;
         }
         //	  unsigned long long& asDate() { return *((unsigned long long *) &i); }
         
