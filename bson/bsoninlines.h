@@ -31,7 +31,7 @@ namespace mongo {
 
     inline BSONObj BSONElement::codeWScopeObject() const {
         assert( type() == CodeWScope );
-        int strSizeWNull = *(int *)( value() + 4 );
+        int strSizeWNull = readLE<int>( value() + 4 );
         return BSONObj( value() + 4 + 4 + strSizeWNull );
     }
     
