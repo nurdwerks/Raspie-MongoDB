@@ -234,32 +234,32 @@ namespace mongo {
         */
         DiskLoc deletedList[Buckets];
 
-        long long datasize;
-        long long nrecords;
-        int lastExtentSize;
-        int nIndexes;
+        storageLE<long long> datasize;
+        storageLE<long long> nrecords;
+        storageLE<int> lastExtentSize;
+        storageLE<int> nIndexes;
     private:
         IndexDetails _indexes[NIndexesBase];
     public:
-        int capped;
-        int max; // max # of objects for a capped table.
-        double paddingFactor; // 1.0 = no padding.
-        int flags;
+        storageLE<int> capped;
+        storageLE<int> max; // max # of objects for a capped table.
+        storageLE<double> paddingFactor; // 1.0 = no padding.
+        storageLE<int> flags;
         DiskLoc capExtent;
         DiskLoc capFirstNewRecord;
 
         /* NamespaceDetails version.  So we can do backward compatibility in the future.
 		   See filever.h
         */
-		unsigned short dataFileVersion;
-		unsigned short indexFileVersion;
+		storageLE<unsigned short> dataFileVersion;
+		storageLE<unsigned short> indexFileVersion;
 
-        unsigned long long multiKeyIndexBits;
+        storageLE<unsigned long long> multiKeyIndexBits;
     private:
-        unsigned long long reservedA;
-        long long extraOffset; // where the $extra info is located (bytes relative to this)
+        storageLE<unsigned long long> reservedA;
+        storageLE<long long> extraOffset; // where the $extra info is located (bytes relative to this)
     public:
-        int backgroundIndexBuildInProgress; // 1 if in prog
+        storageLE<int> backgroundIndexBuildInProgress; // 1 if in prog
         char reserved[76];
 
         /* when a background index build is in progress, we don't count the index in nIndexes until 
