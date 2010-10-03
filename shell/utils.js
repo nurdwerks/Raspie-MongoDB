@@ -59,6 +59,7 @@ assert.soon = function( f, msg, timeout, interval ) {
 
     var start = new Date();
     timeout = timeout || 30000;
+    timeout = timeout * 500;
     interval = interval || 200;
     var last;
     while( 1 ) {
