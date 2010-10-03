@@ -29,8 +29,8 @@ namespace mongo {
 
     extern string dbExecCommand;
 
-#define OPWRITE if( _diaglog.level & 1 ) _diaglog.write((char *) m.data, m.data->len());
-#define OPREAD if( _diaglog.level & 2 ) _diaglog.readop((char *) m.data, m.data->len());
+#define OPWRITE if( _diaglog.level & 1 ) _diaglog.write((char *) m.data, m.data->len);
+#define OPREAD if( _diaglog.level & 2 ) _diaglog.readop((char *) m.data, m.data->len);
 
     struct DiagLog {
         ofstream *f;

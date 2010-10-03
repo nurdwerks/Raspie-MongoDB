@@ -158,7 +158,7 @@ namespace mongo {
 
     static bool receivedQuery(Client& c, DbResponse& dbresponse, Message& m ){
         bool ok = true;
-        MSGID responseTo = m.data->id();
+        MSGID responseTo = m.data->id;
 
         DbMessage d(m);
         QueryMessage q(d);
@@ -192,12 +192,11 @@ namespace mongo {
             b.decouple();
             QueryResult *qr = msgdata;
             qr->setResultFlags( QueryResult::ResultFlag_ErrSet );
-            qr->setLen( b.len() );
+            qr->len = b.len();
             qr->setOperation(opReply);
-            qr->setCursorId( 0 );
-            qr->setStartingFrom( 0 );
-            qr->setNReturned( 1 );
-
+            qr->cursorId = 0;
+            qr->startingFrom = 0;
+            qr->nReturned = 1;
         }
         Message *resp = new Message();
         resp->setData(msgdata, true); // transport will free
@@ -301,7 +300,7 @@ namespace mongo {
                 resp->setData( opReply , "i am fine - dbMsg deprecated");
 
             dbresponse.response = resp;
-            dbresponse.responseTo = m.data->id();
+            dbresponse.responseTo = m.data->id;
         }
         else {
             const char *ns = m.data->_data + 4;
@@ -515,9 +514,9 @@ namespace mongo {
         Message *resp = new Message();
         resp->setData(msgdata, true);
         ss << " bytes:" << resp->data->dataLen();
-        ss << " nreturned:" << msgdata->nReturned();
+        ss << " nreturned:" << msgdata->nReturned;
         dbresponse.response = resp;
-        dbresponse.responseTo = m.data->id();
+        dbresponse.responseTo = m.data->id;
 
         return ok;
     }

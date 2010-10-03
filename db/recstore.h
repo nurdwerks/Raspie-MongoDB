@@ -32,8 +32,8 @@ class BasicRecStore {
         storageLE<uint32_t> version;
         storageLE<uint32_t> recsize;
         storageLE<uint64_t> leof; // logical eof, actual file might be prealloc'd further
-        uint64_t firstDeleted; // 0 = no deleted recs
-        uint32_t cleanShutdown; // 0 = clean
+        storageLE<uint64_t> firstDeleted; // 0 = no deleted recs
+        storageLE<uint32_t> cleanShutdown; // 0 = clean
         char reserved[8192-8-8-4-4-4]; // we want our records page-aligned in the file if they are a multiple of a page's size -- so we make this 8KB with that goal
         RecStoreHeader() { 
             version = 65;

@@ -27,7 +27,7 @@ namespace mongo {
     class Message;
     class MessagingPort;
     class PiggyBackData;
-    typedef AtomicUInt MSGID;
+    typedef unsigned MSGID;
 
     class Listener {
     public:
@@ -138,70 +138,45 @@ namespace mongo {
     }
 
     struct MsgData {
-    private:
-        int _len; /* len of the msg, including this field */
-        MSGID _id; /* request/reply id's match... */
-        MSGID _responseTo; /* id of the message we are responding to */
-        int _operation;
     public:
+        storageLE<int>   len;        /* len of the msg, including this field */
+        storageLE<MSGID> id;         /* request/reply id's match... */
+        storageLE<MSGID> responseTo; /* id of the message we are responding to */
+        storageLE<int>   _operation;
         char _data[4];
 
         char* afterLen() {
-           return reinterpret_cast<char*>(&_id);
+            return reinterpret_cast<char*>(&id);
         }
 
         int operation() const {
-            return littleEndian<int>( _operation );
+            return _operation;
         }
         void setOperation(int o) {
-            _operation = littleEndian<int>( o );
+            _operation = o;
         }
 
         int getDataAsInt() const {
             return readLE<int>(_data);
         }
 
-       int id() const {
-          return littleEndian<int>( _id );
-       }
-
-       void setId( int id ) {
-          _id = littleEndian<int>( id );
-       }
-
-       int responseTo() const {
-          return littleEndian<int>(_responseTo);
-       }
-
-       void setResponseTo( int responseTo ) {
-          _responseTo = littleEndian<int>( responseTo );
-       }
-
-       void setDataAsInt( int val ) {
-          copyLE<int>( _data, val );
-       }
-
-       int len() const {
-          return littleEndian<int>( _len );
-       }
-
-       void setLen( int inLen ) {
-          _len = littleEndian<int>( inLen );
-       }
+        void setDataAsInt( int val ) {
+            copyLE<int>( _data, val );
+        }
         
-       bool valid() const {
-            if ( len() <= 0 || len() > ( 1024 * 1024 * 10 ) )
+        bool valid() const {
+            if ( len <= 0 || len > ( 1024 * 1024 * 10 ) )
                 return false;
             if ( operation() < 0 || operation() > 100000 )
                 return false;
             return true;
         }
 
-        int dataLen(); // len without header
+        int dataLen() const; // len without header
     };
     const int MsgDataHeaderSize = sizeof(MsgData) - 4;
-    inline int MsgData::dataLen() {
-        return len() - MsgDataHeaderSize;
+    inline int MsgData::dataLen() const {
+        return len - MsgDataHeaderSize;
     }
 
 #pragma pack()
@@ -257,7 +232,7 @@ namespace mongo {
             size_t dataLen = len + sizeof(MsgData) - 4;
             MsgData *d = (MsgData *) malloc(dataLen);
             memcpy(d->_data, msgdata, len);
-            d->setLen(dataLen);
+            d->len = dataLen;
             d->setOperation(operation);
             freeIt= true;
             data = d;

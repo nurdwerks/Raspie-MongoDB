@@ -144,7 +144,7 @@ namespace mongo {
     }
     
     void LastErrorHolder::startRequest( Message& m ) {
-        int id = m.data->id() & 0xFFFF0000;
+        int id = m.data->id & 0xFFFF0000;
         setID( id );
         LastError * le = _get( true );
         prepareErrForNewRequest( m, le );

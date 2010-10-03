@@ -88,7 +88,7 @@ namespace mongo {
             catch ( DBException& e ){
                 le->raiseError( e.getCode() , e.what() );
 
-                m.data->setId( r.id() );
+                m.data->id = r.id();
                 log() << "UserException: " << e.what() << endl;
                 if ( r.expectResponse() ){
                     BSONObj err = BSON( "$err" << e.what() << "code" << e.getCode() );

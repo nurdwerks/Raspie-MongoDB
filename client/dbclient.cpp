@@ -819,16 +819,16 @@ namespace mongo {
         resultFlags = qr->resultFlags();
         if ( qr->resultFlags() & QueryResult::ResultFlag_CursorNotFound ) {
             // cursor id no longer valid at the server.
-            assert( qr->cursorId() == 0 );
+            assert( qr->cursorId == 0 );
             cursorId = 0; // 0 indicates no longer valid (dead)
             // TODO: should we throw a UserException here???
         }
         if ( cursorId == 0 || ! ( opts & QueryOption_CursorTailable ) ) {
             // only set initially: we don't want to kill it on end of data
             // if it's a tailable cursor
-            cursorId = qr->cursorId();
+            cursorId = qr->cursorId;
         }
-        nReturned = qr->nReturned();
+        nReturned = qr->nReturned;
         pos = 0;
         data = qr->data();
 

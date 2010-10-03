@@ -518,18 +518,18 @@ namespace mongo {
             
             QueryResult *qr = (QueryResult*)b.buf();
             qr->setResultFlags( QueryResult::ResultFlag_ErrSet | QueryResult::ResultFlag_ShardConfigStale );
-            qr->setLen( b.len() );
-            qr->setOperation( opReply );
-            qr->setCursorId( 0 );
-            qr->setStartingFrom( 0 );
-            qr->setNReturned( 1 );
+            qr->len = b.len();
+            qr->setOperation(opReply);
+            qr->cursorId = 0;
+            qr->startingFrom = 0;
+            qr->nReturned = 1;
             b.decouple();
 
             Message * resp = new Message();
             resp->setData( qr , true );
             
             dbresponse.response = resp;
-            dbresponse.responseTo = m.data->id();
+            dbresponse.responseTo = m.data->id;
             return true;
         }
         
@@ -541,8 +541,8 @@ namespace mongo {
         BSONObjBuilder b;
         b.appendBool( "writeBack" , true );
         b.append( "ns" , ns );
-        b.appendBinData( "msg" , m.data->len() , bdtCustom , (char*)(m.data) );
-        log() << "writing back msg with len: " << m.data->len() << " op: " << m.data->operation() << endl;
+        b.appendBinData( "msg" , m.data->len , bdtCustom , (char*)(m.data) );
+        log() << "writing back msg with len: " << m.data->len << " op: " << m.data->operation() << endl;
         clientQueues[clientID->str()]->push( b.obj() );
 
         return true;

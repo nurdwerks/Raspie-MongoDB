@@ -39,7 +39,7 @@ namespace mongo {
         _m(m) , _d( m ) , _p(p){
         
         assert( _d.getns() );
-        _id = _m.data->id();
+        _id = _m.data->id;
         
         _clientId = p ? p->remotePort() << 16 : 0;
         _clientInfo = ClientInfo::get( _clientId );
@@ -61,8 +61,7 @@ namespace mongo {
             _chunkManager = 0;
         }        
 
-        _m.data->setId(_id);
-        
+        _m.data->id = _id;        
     }
     
     string Request::singleServerName() const {
@@ -78,7 +77,7 @@ namespace mongo {
     
     void Request::process( int attempt ){
 
-        log(3) << "Request::process ns: " << getns() << " msg id:" << (int)(_m.data->id()) << " attempt: " << attempt << endl;
+        log(3) << "Request::process ns: " << getns() << " msg id:" << (int)(_m.data->id) << " attempt: " << attempt << endl;
 
         int op = _m.data->operation();
         assert( op > dbMsg );

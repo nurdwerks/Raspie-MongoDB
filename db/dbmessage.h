@@ -55,22 +55,13 @@ namespace mongo {
             ResultFlag_AwaitCapable = 8
         };
 
-    private:
-        long long _cursorId;
-        int _startingFrom;
-        int _nReturned;
     public:
-
-        long long cursorId() const {
-           return littleEndian<long long>( _cursorId );
-        }
-
-        void setCursorId( long long cursorID ) {
-           _cursorId = littleEndian<long long>( cursorID );
-        }
+        storageLE<long long> cursorId;
+        storageLE<int>       startingFrom;
+        storageLE<int>       nReturned;
 
         const char *data() {
-            return (char *) (((int *)&_nReturned)+1);
+            return reinterpret_cast<char*>( &nReturned + 1 );
         }
 
         int resultFlags() const {
@@ -83,22 +74,6 @@ namespace mongo {
         
         void setResultFlagsToOk() { 
            setResultFlags( ResultFlag_AwaitCapable );
-        }
-
-        int startingFrom() const {
-           return littleEndian<int>( _startingFrom );
-        }
-        
-        void setStartingFrom( int startingFrom ) {
-           _startingFrom = littleEndian<int>( startingFrom );
-        }
-        
-        int nReturned() const {
-           return littleEndian<int>( _nReturned );
-        }
-
-        void setNReturned( int nReturned ) {
-           _nReturned = littleEndian<int>( nReturned );
         }
     };
 #pragma pack()
@@ -262,14 +237,14 @@ namespace mongo {
         b.append(data, size);
         QueryResult *qr = (QueryResult *) b.buf();
         qr->setResultFlags( queryResultFlags );
-        qr->setLen( b.len() );
+        qr->len = b.len();
         qr->setOperation( opReply );
-        qr->setCursorId( cursorId );
-        qr->setStartingFrom( startingFrom );
-        qr->setNReturned( nReturned );
+        qr->cursorId = cursorId;
+        qr->startingFrom = startingFrom;
+        qr->nReturned = nReturned;
         b.decouple();
         Message resp(qr, true);
-        p->reply(requestMsg, resp, requestMsg.data->id() );
+        p->reply(requestMsg, resp, requestMsg.data->id );
     }
 
 } // namespace mongo
@@ -298,15 +273,15 @@ namespace mongo {
         b.decouple();
         QueryResult *qr = msgdata;
         qr->setResultFlags( queryResultFlags );
-        qr->setLen( b.len() );
+        qr->len = b.len();
         qr->setOperation( opReply );
-        qr->setCursorId( 0 );
-        qr->setStartingFrom( 0 );
-        qr->setNReturned( 1 );
+        qr->cursorId = 0;
+        qr->startingFrom = 0;
+        qr->nReturned = 1;
         Message *resp = new Message();
         resp->setData(msgdata, true); // transport will free
         dbresponse.response = resp;
-        dbresponse.responseTo = m.data->id();
+        dbresponse.responseTo = m.data->id;
     }
 
 } // namespace mongo

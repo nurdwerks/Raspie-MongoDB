@@ -777,7 +777,7 @@ namespace QueryOptimizerTests {
 
                 DbMessage d(m);
                 QueryMessage q(d);
-                ASSERT_EQUALS( 0, runQuery( m, q)->nReturned() );
+                ASSERT_EQUALS( 0, runQuery( m, q)->nReturned );
             }
         };
         

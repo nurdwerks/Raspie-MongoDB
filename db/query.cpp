@@ -241,11 +241,11 @@ namespace mongo {
         BufBuilder b(32768);
         b.skip(sizeof(QueryResult));
         QueryResult *qr = (QueryResult *) b.buf();
-        qr->setCursorId( 0 ); // 0 indicates no more data to retrieve.
-        qr->setStartingFrom( 0 );
-        qr->setLen( b.len() );
+        qr->cursorId = 0; // 0 indicates no more data to retrieve.
+        qr->startingFrom = 0;
+        qr->len = b.len();
         qr->setOperation(opReply);
-        qr->setNReturned( 0 );
+        qr->nReturned = 0;
         b.decouple();
         return qr;
     }
@@ -345,12 +345,12 @@ namespace mongo {
         }
 
         QueryResult *qr = (QueryResult *) b.buf();
-        qr->setLen( b.len() );
+        qr->len = b.len();
         qr->setOperation(opReply);
         qr->setResultFlags( resultFlags );
-        qr->setCursorId( cursorid );
-        qr->setStartingFrom( start );
-        qr->setNReturned( n );
+        qr->cursorId = cursorid;
+        qr->startingFrom = start;
+        qr->nReturned = n;
         b.decouple();
 
         return qr;
@@ -685,13 +685,13 @@ namespace mongo {
                 qr.reset( (QueryResult *) bb.buf() );
                 bb.decouple();
                 qr->setResultFlagsToOk();
-                qr->setLen( bb.len() );
+                qr->len = bb.len();
                 ss << " reslen:" << bb.len();
                 //	qr->channel = 0;
                 qr->setOperation(opReply);
-                qr->setCursorId( cursorid );
-                qr->setStartingFrom( 0 );
-                qr->setNReturned( n );
+                qr->cursorId = cursorid;
+                qr->startingFrom = 0;
+                qr->nReturned = n;
             }
             return qr;
         }
@@ -773,12 +773,12 @@ namespace mongo {
                 qr.reset( (QueryResult *) bb.buf() );
                 bb.decouple();
                 qr->setResultFlagsToOk();
-                qr->setLen( bb.len() );
+                qr->len = bb.len();
                 ss << " reslen:" << bb.len();
                 qr->setOperation(opReply);
-                qr->setCursorId( cursorid );
-                qr->setStartingFrom( 0 );
-                qr->setNReturned( n );
+                qr->cursorId = cursorid;
+                qr->startingFrom = 0;
+                qr->nReturned = n;
                 return qr;
             }     
         }
@@ -839,14 +839,13 @@ namespace mongo {
         }
         qr.reset( (QueryResult *) dqo.builder().buf() );
         dqo.builder().decouple();
-        qr->setCursorId( cursorid );
+        qr->cursorId = cursorid;
         qr->setResultFlagsToOk();
-        qr->setLen( dqo.builder().len() );
-        ss << " reslen:" << qr->len();
+        qr->len = dqo.builder().len();
+        ss << " reslen:" << qr->len;
         qr->setOperation(opReply);
-        qr->setStartingFrom( 0 );
-        qr->setNReturned( n );
-
+        qr->startingFrom = 0;
+        qr->nReturned = n;
         
         int duration = curop.elapsedMillis();
         bool dbprofile = curop.shouldDBProfile( duration );

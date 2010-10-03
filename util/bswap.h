@@ -83,13 +83,13 @@ namespace mongo {
   public:
       storageLE() {}
  
-      storageLE( T val ) {
-         _val = littleEndian<T>( val );
-      }
-
-      storageLE& operator=( int val ) {
+      storageLE& operator=( T val ) {
          _val = littleEndian<T>( val );
          return *this;
+      }
+
+      storageLE( T val ) {
+         (*this) = val;
       }
 
       operator const T() const {
@@ -136,7 +136,7 @@ namespace mongo {
          return old;
      }
 
-     friend ostream& operator<<( ostream& ost, storageLE val ) {
+     friend std::ostream& operator<<( std::ostream& ost, storageLE val ) {
         return ost << T(val);
      }
 
