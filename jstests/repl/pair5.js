@@ -36,7 +36,8 @@ checkCount = function( m, c ) {
     m.setSlaveOk();
     assert.soon( function() {
                 actual = m.getDB( baseName ).getCollection( baseName ).find().count();
-                print( actual );
+                print( "actual = " + actual );
+                print( "c = " + c );
                 return c == actual; },
                 "count failed for " + m );
 }
