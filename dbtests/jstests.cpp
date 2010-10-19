@@ -17,11 +17,12 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "../db/instance.h"
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "../scripting/engine.h"
+#include "../util/timer.h"
 
 #include "dbtests.h"
 
@@ -518,7 +519,7 @@ namespace JSTests {
     class NumberLong {
     public:
         void run() {
-            Scope * s = globalScriptEngine->newScope();
+            auto_ptr<Scope> s( globalScriptEngine->newScope() );
             s->localConnect( "blah" );
             BSONObjBuilder b;
             long long val = (long long)( 0xbabadeadbeefbaddULL );
@@ -531,12 +532,17 @@ namespace JSTests {
             ASSERT( s->exec( "printjson( a ); b = {b:a.a}", "foo", false, true, false ) );
             out = s->getObject( "b" );
             ASSERT_EQUALS( mongo::NumberLong, out.firstElement().type() );
-            ASSERT_EQUALS( val, out.firstElement().numberLong() );
+            if( val != out.firstElement().numberLong() ) {
+                cout << val << endl;
+                cout << out.firstElement().numberLong() << endl;
+                cout << out.toString() << endl;
+                ASSERT_EQUALS( val, out.firstElement().numberLong() );
+            }
             
             ASSERT( s->exec( "c = {c:a.a.toString()}", "foo", false, true, false ) );
             out = s->getObject( "c" );
             stringstream ss;
-            ss << val;
+            ss << "NumberLong(\"" << val << "\")";
             ASSERT_EQUALS( ss.str(), out.firstElement().valuestr() );
 
             ASSERT( s->exec( "d = {d:a.a.toNumber()}", "foo", false, true, false ) );
@@ -568,6 +574,34 @@ namespace JSTests {
             ASSERT_EQUALS( mongo::NumberLong, out.firstElement().type() );
             ASSERT_EQUALS( 4, out.firstElement().numberLong() );     
             
+        }
+    };
+
+    class NumberLong2 {
+    public:
+        void run() {
+            auto_ptr<Scope> s( globalScriptEngine->newScope() );
+            s->localConnect( "blah" );
+            
+            BSONObj in;
+            {
+                BSONObjBuilder b;
+                b.append( "a" , 5 );
+                b.append( "b" , (long long)5 );
+                b.append( "c" , (long long)pow( 2.0, 29 ) );
+                b.append( "d" , (long long)pow( 2.0, 30 ) );
+                b.append( "e" , (long long)pow( 2.0, 31 ) );
+                b.append( "f" , (long long)pow( 2.0, 45 ) );
+                in = b.obj();
+            }
+            s->setObject( "a" , in );
+            
+            ASSERT( s->exec( "x = tojson( a ); " ,"foo" , false , true , false ) );
+            string outString = s->getString( "x" );
+
+            ASSERT( s->exec( (string)"y = " + outString , "foo2" , false , true , false ) );
+            BSONObj out = s->getObject( "y" );
+            ASSERT_EQUALS( in , out );
         }
     };
     
@@ -627,7 +661,7 @@ namespace JSTests {
     private:
         void check( const BSONObj &one, const BSONObj &two ) {
             if ( one.woCompare( two ) != 0 ) {
-                static string fail = string( "Assertion failure expected " ) + string( one ) + ", got " + string( two );
+                static string fail = string( "Assertion failure expected " ) + one.toString() + ", got " + two.toString();
                 FAIL( fail.c_str() );
             }
         }
@@ -651,6 +685,37 @@ namespace JSTests {
             client.dropCollection( ns() );
         }        
         static const char *ns() { return "unittest.jstests.longutf8string"; }
+    };
+
+    class InvalidUTF8Check {
+    public:
+        void run(){
+            if( !globalScriptEngine->utf8Ok() )
+                return;
+
+            auto_ptr<Scope> s;
+            s.reset( globalScriptEngine->newScope() );
+
+            BSONObj b;
+            {
+                char crap[5];
+
+                crap[0] = (char) 128;
+                crap[1] = 17;
+                crap[2] = (char) 128;
+                crap[3] = 17;
+                crap[4] = 0;
+                
+                BSONObjBuilder bb;
+                bb.append( "x" , crap );
+                b = bb.obj();
+            }
+            
+            //cout << "ELIOT: " << b.jsonString() << endl;
+            s->setThis( &b );
+            // its ok  if this is handled by js, just can't create a c++ exception
+            s->invoke( "x=this.x.length;" , BSONObj() ); 
+        }
     };
     
     class CodeTests {
@@ -701,7 +766,8 @@ namespace JSTests {
             
             {
                 BSONObj fromA = client.findOne( _a , BSONObj() );
-                cout << "Froma : " << fromA << endl;
+                assert( fromA.valid() );
+                //cout << "Froma : " << fromA << endl;
                 BSONObjBuilder b;
                 b.append( "b" , 18 );
                 b.appendDBRef( "c" , "dbref.a" , fromA["_id"].__oid() );
@@ -771,7 +837,7 @@ namespace JSTests {
             {
                 BSONObjBuilder b;
                 b.append( "a" , 7 );
-                b.appendBinData( "b" , 12 , ByteArray , foo );
+                b.appendBinData( "b" , 12 , BinDataGeneral , foo );
                 in = b.obj();
                 s->setObject( "x" , in );
             }
@@ -788,11 +854,11 @@ namespace JSTests {
             // check that BinData js class is utilized
             s->invokeSafe( "q = x.b.toString();", BSONObj() );
             stringstream expected;
-            expected << "BinData( type: " << ByteArray << ", base64: \"" << base64 << "\" )";
+            expected << "BinData(" << BinDataGeneral << ",\"" << base64 << "\")";
             ASSERT_EQUALS( expected.str(), s->getString( "q" ) );
             
             stringstream scriptBuilder;
-            scriptBuilder << "z = { c : new BinData( " << ByteArray << ", \"" << base64 << "\" ) };";
+            scriptBuilder << "z = { c : new BinData( " << BinDataGeneral << ", \"" << base64 << "\" ) };";
             string script = scriptBuilder.str();
             s->invokeSafe( script.c_str(), BSONObj() );
             out = s->getObject( "z" );
@@ -842,9 +908,57 @@ namespace JSTests {
                 s->invoke( f , empty );
                 ASSERT_EQUALS( 11 , s->getNumber( "return" ) );
             }
-            cout << "speed1: " << ( n / t.millis() ) << " ops/ms" << endl;
+            //cout << "speed1: " << ( n / t.millis() ) << " ops/ms" << endl;
         }
     };
+
+    class ScopeOut {
+    public:
+        void run(){
+            auto_ptr<Scope> s;
+            s.reset( globalScriptEngine->newScope() );
+            
+            s->invokeSafe( "x = 5;" , BSONObj() );
+            {
+                BSONObjBuilder b;
+                s->append( b , "z" , "x" );
+                ASSERT_EQUALS( BSON( "z" << 5 ) , b.obj() );
+            }
+
+            s->invokeSafe( "x = function(){ return 17; }" , BSONObj() );
+            BSONObj temp;
+            {
+                BSONObjBuilder b;
+                s->append( b , "z" , "x" );
+                temp = b.obj();
+                s->setThis( &temp );
+            }
+
+            s->invokeSafe( "foo = this.z();" , BSONObj() );
+            ASSERT_EQUALS( 17 , s->getNumber( "foo" ) );
+        }
+    };
+
+    class RenameTest {
+    public:
+        void run(){
+            auto_ptr<Scope> s;
+            s.reset( globalScriptEngine->newScope() );
+            
+            s->setNumber( "x" , 5 );
+            ASSERT_EQUALS( 5 , s->getNumber( "x" ) );
+            ASSERT_EQUALS( Undefined , s->type( "y" ) );
+            
+            s->rename( "x" , "y" );
+            ASSERT_EQUALS( 5 , s->getNumber( "y" ) );
+            ASSERT_EQUALS( Undefined , s->type( "x" ) );
+
+            s->rename( "y" , "x" );
+            ASSERT_EQUALS( 5 , s->getNumber( "x" ) );
+            ASSERT_EQUALS( Undefined , s->type( "y" ) );
+        }
+    };
+            
 
     class All : public Suite {
     public:
@@ -857,7 +971,7 @@ namespace JSTests {
             add< ResetScope >();
             add< FalseTests >();
             add< SimpleFunctions >();
-
+            
             add< ObjectMapping >();
             add< ObjectDecoding >();
             add< JSOIDTests >();
@@ -867,10 +981,10 @@ namespace JSTests {
             add< SpecialDBTypes >();
             add< TypeConservation >();
             add< NumberLong >();
+            add< NumberLong2 >();
+            add< RenameTest >();
 
             add< WeirdObjects >();
-            add< Utf8Check >();
-            add< LongUtf8String >();
             add< CodeTests >();
             add< DBRefTest >();
             add< InformalDBRef >();
@@ -879,6 +993,12 @@ namespace JSTests {
             add< VarTests >();
             
             add< Speed1 >();
+
+            add< InvalidUTF8Check >();
+            add< Utf8Check >();
+            add< LongUtf8String >();
+
+            add< ScopeOut >();
         }
     } myall;
     

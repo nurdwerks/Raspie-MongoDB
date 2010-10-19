@@ -16,7 +16,7 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "namespace.h"
 #include "index.h"
 #include "btree.h"
@@ -45,6 +45,23 @@ namespace mongo {
             _plugins = new map<string,IndexPlugin*>();
         (*_plugins)[name] = this;
     }
+
+    string IndexPlugin::findPluginName( const BSONObj& keyPattern ){
+        string pluginName = "";
+        
+        BSONObjIterator i( keyPattern );
+        
+        while( i.more() ) {
+            BSONElement e = i.next();
+            if ( e.type() != String )
+                continue;
+            
+            uassert( 13007 , "can only have 1 index plugin / bad index key pattern" , pluginName.size() == 0 || pluginName == e.String() );
+            pluginName = e.String();
+        }
+        
+        return pluginName;
+    }
     
     int IndexType::compare( const BSONObj& l , const BSONObj& r ) const {
         return l.woCompare( r , _spec->keyPattern );
@@ -53,20 +70,16 @@ namespace mongo {
     void IndexSpec::_init(){
         assert( keyPattern.objsize() );
         
-        string pluginName = "";
-
-        BSONObjIterator i( keyPattern );
+        string pluginName = IndexPlugin::findPluginName( keyPattern );
+        
         BSONObjBuilder nullKeyB;
+        BSONObjIterator i( keyPattern );
+        
         while( i.more() ) {
             BSONElement e = i.next();
             _fieldNames.push_back( e.fieldName() );
             _fixed.push_back( BSONElement() );
-            nullKeyB.appendNull( "" );
-            if ( e.type() == String ){
-                uassert( 13007 , "can only have 1 index plugin / bad index key pattern" , pluginName.size() == 0 );
-                pluginName = e.valuestr();
-            }
-                
+            nullKeyB.appendNull( "" );            
         }
         
         _nullKey = nullKeyB.obj();
@@ -119,7 +132,11 @@ namespace mongo {
                 arrElt = e;
             }
             // enforce single array path here
-            uassert( 10088 ,  "cannot index parallel arrays", e.type() != Array || e.rawdata() == arrElt.rawdata() );
+            if ( e.type() == Array && e.rawdata() != arrElt.rawdata() ){
+                stringstream ss;
+                ss << "cannot index parallel arrays [" << e.fieldName() << "] [" << arrElt.fieldName() << "]";
+                uasserted( 10088 ,  ss.str() );
+            }
         }
 
         bool allFound = true; // have we found elements for all field names in the key spec?
@@ -129,6 +146,8 @@ namespace mongo {
                 break;
             }
         }
+
+        bool insertArrayNull = false;
 
         if ( allFound ) {
             if ( arrElt.eoo() ) {
@@ -154,26 +173,42 @@ namespace mongo {
                     }
                 }
                 else if ( fixed.size() > 1 ){
-                    // x : [] - need to insert undefined
-                    BSONObjBuilder b(_sizeTracker);
-                    for( unsigned j = 0; j < fixed.size(); ++j ) {
-                        if ( j == arrIdx )
-                            b.appendUndefined( "" );
-                        else
-                            b.appendAs( fixed[ j ], "" );
-                    }
-                    keys.insert( b.obj() );
+                    insertArrayNull = true;
                 }
             }
         } else {
             // nonterminal array element to expand, so recurse
             assert( !arrElt.eoo() );
             BSONObjIterator i( arrElt.embeddedObject() );
-            while( i.more() ) {
-                BSONElement e = i.next();
-                if ( e.type() == Object )
-                    _getKeys( fieldNames, fixed, e.embeddedObject(), keys );
+            if ( i.more() ){
+                while( i.more() ) {
+                    BSONElement e = i.next();
+                    if ( e.type() == Object ){
+                        _getKeys( fieldNames, fixed, e.embeddedObject(), keys );
+                    }
+                }
             }
+            else {
+                insertArrayNull = true;
+            }
+        }
+        
+        if ( insertArrayNull ) {
+            // x : [] - need to insert undefined
+            BSONObjBuilder b(_sizeTracker);
+            for( unsigned j = 0; j < fixed.size(); ++j ) {
+                if ( j == arrIdx ){
+                    b.appendUndefined( "" );
+                }
+                else {
+                    BSONElement e = fixed[j];
+                    if ( e.eoo() )
+                        b.appendNull( "" );
+                    else
+                        b.appendAs( e , "" );
+                }
+            }
+            keys.insert( b.obj() );
         }
     }
 

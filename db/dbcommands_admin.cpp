@@ -22,7 +22,7 @@
 */
 
 
-#include "stdafx.h"
+#include "pch.h"
 #include "jsobj.h"
 #include "pdfile.h"
 #include "namespace.h"
@@ -35,37 +35,20 @@
 
 namespace mongo {
 
-    class FeaturesCmd : public Command {
-    public:
-        FeaturesCmd() : Command( "features", true ){}
-
-        virtual bool slaveOk(){ return true; }
-        virtual bool readOnly(){ return true; }
-        virtual LockType locktype(){ return READ; } 
-        virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl){
-            result.append( "readlock" , readLockSupported() );
-            if ( globalScriptEngine ){
-                BSONObjBuilder bb( result.subobjStart( "js" ) );
-                result.append( "utf8" , globalScriptEngine->utf8Ok() );
-                bb.done();
-            }
-            return true;
-        }
-        
-    } featuresCmd;
-
     class CleanCmd : public Command {
     public:
         CleanCmd() : Command( "clean" ){}
 
-        virtual bool slaveOk(){ return true; }
-        virtual LockType locktype(){ return WRITE; } 
+        virtual bool slaveOk() const { return true; }
+        virtual LockType locktype() const { return WRITE; } 
         
-        bool run(const char *nsRaw, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl ){
-            string dropns = cc().database()->name + "." + cmdObj.firstElement().valuestrsafe();
+        virtual void help(stringstream& h) const { h << "internal"; }
+
+        bool run(const string& dbname, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl ){
+            string dropns = dbname + "." + cmdObj.firstElement().valuestrsafe();
             
             if ( !cmdLine.quiet )
-                log() << "CMD: clean " << dropns << endl;
+                tlog() << "CMD: clean " << dropns << endl;
             
             NamespaceDetails *d = nsdetails(dropns.c_str());
             
@@ -87,18 +70,20 @@ namespace mongo {
     public:
         ValidateCmd() : Command( "validate" ){}
 
-        virtual bool slaveOk(){
+        virtual bool slaveOk() const {
             return true;
         }
         
-        virtual LockType locktype(){ return WRITE; } 
+        virtual void help(stringstream& h) const { h << "Validate contents of a namespace by scanning its data structures for correctness.  Slow."; }
+
+        virtual LockType locktype() const { return READ; } 
         //{ validate: "collectionnamewithoutthedbpart" [, scandata: <bool>] } */
         
-        bool run(const char *nsRaw, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl ){
-            string ns = cc().database()->name + "." + cmdObj.firstElement().valuestrsafe();
+        bool run(const string& dbname , BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl ){
+            string ns = dbname + "." + cmdObj.firstElement().valuestrsafe();
             NamespaceDetails * d = nsdetails( ns.c_str() );
             if ( !cmdLine.quiet )
-                log() << "CMD: validate " << ns << endl;
+                tlog() << "CMD: validate " << ns << endl;
 
             if ( ! d ){
                 errmsg = "ns not found";
@@ -122,8 +107,8 @@ namespace mongo {
             if ( d->capped )
                 ss << "  capped:" << d->capped << " max:" << d->max << '\n';
             
-            ss << "  firstExtent:" << d->firstExtent.toString() << " ns:" << d->firstExtent.ext()->nsDiagnostic.buf << '\n';
-            ss << "  lastExtent:" << d->lastExtent.toString()    << " ns:" << d->lastExtent.ext()->nsDiagnostic.buf << '\n';
+            ss << "  firstExtent:" << d->firstExtent.toString() << " ns:" << d->firstExtent.ext()->nsDiagnostic.toString()<< '\n';
+            ss << "  lastExtent:" << d->lastExtent.toString()    << " ns:" << d->lastExtent.ext()->nsDiagnostic.toString() << '\n';
             try {
                 d->firstExtent.ext()->assertOk();
                 d->lastExtent.ext()->assertOk();
@@ -143,7 +128,7 @@ namespace mongo {
                 ss << " extent asserted ";
             }
 
-            ss << "  datasize?:" << d->datasize << " nrecords?:" << d->nrecords << " lastExtentSize:" << d->lastExtentSize << '\n';
+            ss << "  datasize?:" << d->stats.datasize << " nrecords?:" << d->stats.nrecords << " lastExtentSize:" << d->lastExtentSize << '\n';
             ss << "  padding:" << d->paddingFactor << '\n';
             try {
 
@@ -158,7 +143,7 @@ namespace mongo {
 
                 set<DiskLoc> recs;
                 if( scanData ) {
-                    auto_ptr<Cursor> c = theDataFileMgr.findAll(ns);
+                    shared_ptr<Cursor> c = theDataFileMgr.findAll(ns);
                     int n = 0;
                     long long len = 0;
                     long long nlen = 0;
@@ -190,7 +175,7 @@ namespace mongo {
                         else ss << " (OK)";
                         ss << '\n';
                     }
-                    ss << "  " << n << " objects found, nobj:" << d->nrecords << '\n';
+                    ss << "  " << n << " objects found, nobj:" << d->stats.nrecords << '\n';
                     ss << "  " << len << " bytes data w/headers\n";
                     ss << "  " << nlen << " bytes data wout/headers\n";
                 }
@@ -281,8 +266,8 @@ namespace mongo {
     public:
         UnlockCommand() : Command( "unlock" ) { }
         virtual bool readOnly() { return true; }
-        virtual bool slaveOk(){ return true; }
-        virtual bool adminOnly(){ return true; }
+        virtual bool slaveOk() const { return true; }
+        virtual bool adminOnly() const { return true; }
         virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
             if( lockedForWriting ) { 
 				log() << "command: unlock requested" << endl;
@@ -304,6 +289,7 @@ namespace mongo {
     class FSyncCommand : public Command {
         class LockDBJob : public BackgroundJob { 
         protected:
+            string name() { return "lockdbjob"; }
             void run() { 
                 Client::initThread("fsyncjob");
                 Client& c = cc();
@@ -337,14 +323,15 @@ namespace mongo {
         };
     public:
         FSyncCommand() : Command( "fsync" ){}
-        virtual LockType locktype(){ return WRITE; } 
-        virtual bool slaveOk(){ return true; }
-        virtual bool adminOnly(){ return true; }
+        virtual LockType locktype() const { return WRITE; } 
+        virtual bool slaveOk() const { return true; }
+        virtual bool adminOnly() const { return true; }
         /*virtual bool localHostOnlyIfNoAuth(const BSONObj& cmdObj) { 
             string x = cmdObj["exec"].valuestrsafe();
             return !x.empty();
         }*/
-        virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
+        virtual void help(stringstream& h) const { h << "http://www.mongodb.org/display/DOCS/fsync+Command"; }
+        virtual bool run(const string& dbname, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
             /* async means do an fsync, but return immediately */
             bool sync = ! cmdObj["async"].trueValue();
             bool lock = cmdObj["lock"].trueValue();
@@ -377,47 +364,7 @@ namespace mongo {
         
     } fsyncCmd;
     
-    class LogRotateCmd : public Command {
-    public:
-        LogRotateCmd() : Command( "logRotate" ){}
-        virtual LockType locktype(){ return NONE; } 
-        virtual bool slaveOk(){ return true; }
-        virtual bool adminOnly(){ return true; }
-        virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
-            rotateLogs();
-            return 1;
-        }        
-        
-    } logRotateCmd;
-    
-    class ListCommandsCmd : public Command {
-    public:
-        ListCommandsCmd() : Command( "listCommands" ){}
-        virtual LockType locktype(){ return NONE; } 
-        virtual bool slaveOk(){ return true; }
-        virtual bool adminOnly(){ return false; }
-        virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
-            BSONObjBuilder b( result.subobjStart( "commands" ) );
-            for ( map<string,Command*>::iterator i=_commands->begin(); i!=_commands->end(); ++i ){
-                Command * c = i->second;
-                BSONObjBuilder temp( b.subobjStart( c->name.c_str() ) );
 
-                {
-                    stringstream help;
-                    c->help( help );
-                    temp.append( "help" , help.str() );
-                }
-                temp.append( "lockType" , c->locktype() );
-                temp.append( "slaveOk" , c->slaveOk() );
-                temp.append( "adminOnly" , c->adminOnly() );
-                temp.done();
-            }
-            b.done();
-
-            return 1;
-        }        
-
-    } listCommandsCmd;
 
 }
 

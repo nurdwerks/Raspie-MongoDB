@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 
 namespace mongo {
     
@@ -24,10 +24,23 @@ namespace mongo {
     */
     /* concurrency: OK/READ */
     struct CmdLine { 
-        int port;              // --port
-        bool rest;             // --rest
+        string binaryName;     // mongod or mongos
 
-        string replSet;        // --replSet <seedlist>
+        int port;              // --port
+        string bind_ip;        // --bind_ip
+        bool rest;             // --rest
+        bool jsonp;             // --jsonp
+
+        string _replSet;       // --replSet[/<seedlist>]
+        string ourSetName() const { 
+            string setname;
+            size_t sl = _replSet.find('/');
+            if( sl == string::npos )
+                return _replSet;
+            return _replSet.substr(0, sl);
+        }
+        bool usingReplSets() const { return !_replSet.empty(); }
+
         string source;         // --source
         string only;           // --only
         
@@ -44,6 +57,9 @@ namespace mongo {
         int defaultProfile;    // --profile
         int slowMS;            // --time in ms that is "slow"
 
+        int pretouch;          // --pretouch for replication application (experimental)
+        bool moveParanoia;     // for move chunk paranoia 
+        
         enum { 
             DefaultDBPort = 27017,
 			ConfigServerPort = 27019,
@@ -51,12 +67,15 @@ namespace mongo {
         };
 
         CmdLine() : 
-            port(DefaultDBPort), rest(false), quiet(false), notablescan(false), prealloc(true), smallfiles(false),
-            quota(false), quotaFiles(8), cpu(false), oplogSize(0), defaultProfile(0), slowMS(100)
+            port(DefaultDBPort), rest(false), jsonp(false), quiet(false), notablescan(false), prealloc(true), smallfiles(false),
+            quota(false), quotaFiles(8), cpu(false), oplogSize(0), defaultProfile(0), slowMS(100), pretouch(0), moveParanoia( true )
         { } 
         
 
         static void addGlobalOptions( boost::program_options::options_description& general , 
+                                      boost::program_options::options_description& hidden );
+
+        static void addWindowsOptions( boost::program_options::options_description& windows , 
                                       boost::program_options::options_description& hidden );
 
         
@@ -72,4 +91,5 @@ namespace mongo {
     
     extern CmdLine cmdLine;
     
+    void setupCoreSignals();
 }

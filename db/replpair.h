@@ -22,7 +22,7 @@
 #include "../client/dbclient.h"
 #include "repl.h"
 #include "cmdline.h"
-#include "repl/replset.h"
+#include "repl/rs.h"
 
 namespace mongo {
 
@@ -55,7 +55,7 @@ namespace mongo {
         int remotePort;
         string remoteHost;
         string remote; // host:port if port specified.
-//    int date; // -1 not yet set; 0=slave; 1=master
+	//    int date; // -1 not yet set; 0=slave; 1=master
         
         string getInfo() {
             stringstream ss;
@@ -102,10 +102,6 @@ namespace mongo {
 
     extern ReplPair *replPair;
 
-    inline void notMasterUnless(bool expr) { 
-        uassert( 10107 , "not master" , expr );
-    }
-
     /* note we always return true for the "local" namespace.
 
        we should not allow most operations when not the master
@@ -115,28 +111,23 @@ namespace mongo {
 
        If 'client' is not specified, the current client is used.
     */
-    inline bool isMaster( const char *client = 0 ) {
+    inline bool _isMaster() {
         if( replSet ) {
-            if( theReplSet ) return theReplSet->isMaster(client);
+            if( theReplSet ) 
+                return theReplSet->isPrimary();
             return false;
         }
 
-		if( ! replSettings.slave ) 
-			return true;
-
-        if ( !client ) {
-            Database *database = cc().database();
-            assert( database );
-            client = database->name.c_str();
-        }
+        if( ! replSettings.slave ) 
+            return true;
 
         if ( replAllDead )
-            return strcmp( client, "local" ) == 0;
+            return false;
 
         if ( replPair ) {
-			if( replPair->state == ReplPair::State_Master )
-				return true;
-		}
+            if( replPair->state == ReplPair::State_Master )
+                return true;
+        }
         else { 
             if( replSettings.master ) {
                 // if running with --master --slave, allow.  note that master is also true 
@@ -148,7 +139,21 @@ namespace mongo {
         if ( cc().isGod() )
             return true;
         
+        return false;
+    }
+    inline bool isMaster(const char *client = 0) {
+        if( _isMaster() )
+            return true;
+        if ( !client ) {
+            Database *database = cc().database();
+            assert( database );
+            client = database->name.c_str();
+        }
         return strcmp( client, "local" ) == 0;
+    }
+
+    inline void notMasterUnless(bool expr) { 
+        uassert( 10107 , "not master" , expr );
     }
 
     /* we allow queries to SimpleSlave's -- but not to the slave (nonmaster) member of a replica pair 
@@ -157,11 +162,13 @@ namespace mongo {
     */
     inline void replVerifyReadsOk(ParsedQuery& pq) {
         if( replSet ) {
-            uassert(13124, "not master - replSet still initializing", theReplSet); // during initialization, no queries allowed whatsover
-            notMasterUnless( theReplSet->isMaster("") || pq.hasOption( QueryOption_SlaveOk ) );
-            return;
+            /* todo: speed up the secondary case.  as written here there are 2 mutex entries, it can b 1. */
+            if( isMaster() ) return;
+            uassert(13435, "not master and slaveok=false", pq.hasOption(QueryOption_SlaveOk));
+            uassert(13436, "not master or secondary, can't read", theReplSet && theReplSet->isSecondary() );
+        } else {
+            notMasterUnless(isMaster() || pq.hasOption(QueryOption_SlaveOk) || replSettings.slave == SimpleSlave );
         }
-        notMasterUnless(isMaster() || pq.hasOption( QueryOption_SlaveOk ) || replSettings.slave == SimpleSlave);
     }
 
     inline bool isMasterNs( const char *ns ) {
@@ -215,7 +222,7 @@ namespace mongo {
             BSONObj o = fromjson("{\"initialsynccomplete\":1}");
             Helpers::putSingleton("local.pair.sync", o);
             initialsynccomplete = 1;
-            log() << "pair: initial sync complete" << endl;
+            tlog() << "pair: initial sync complete" << endl;
         }
 
         void setInitialSyncCompletedLocking() {

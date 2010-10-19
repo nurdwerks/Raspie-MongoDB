@@ -16,19 +16,27 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
+#include "pch.h"
+#include "repl.h"
 #include "repl_block.h"
 #include "instance.h"
 #include "dbhelpers.h"
 #include "../util/background.h"
+#include "../util/mongoutils/str.h"
 #include "../client/dbclient.h"
+#include "replpair.h"
 
+//#define REPLDEBUG(x) log() << "replBlock: "  << x << endl;
+#define REPLDEBUG(x)
 
 namespace mongo {
 
+    using namespace mongoutils;
+
     class SlaveTracking : public BackgroundJob {
     public:
-        
+        string name() { return "SlaveTracking"; }
+
         static const char * NS;
 
         struct Ident {
@@ -59,7 +67,7 @@ namespace mongo {
             OpTime * loc;
         };
 
-        SlaveTracking(){
+        SlaveTracking() : _mutex("SlaveTracking") {
             _dirty = false;
             _started = false;
         }
@@ -104,8 +112,14 @@ namespace mongo {
         }
 
         void update( const BSONObj& rid , const string& host , const string& ns , OpTime last ){
+            REPLDEBUG( host << " " << rid << " " << ns << " " << last );
+
             scoped_lock mylk(_mutex);
             
+#ifdef _DEBUG
+            MongoFileAllowWrites allowWrites;
+#endif
+
             Ident ident(rid,host,ns);
             Info& i = _slaves[ ident ];
             if ( i.loc ){
@@ -114,6 +128,7 @@ namespace mongo {
             }
             
             dbMutex.assertAtLeastReadLocked();
+
             BSONObj res;
             if ( Helpers::findOne( NS , ident.obj , res ) ){
                 assert( res["syncedTo"].type() );
@@ -127,15 +142,23 @@ namespace mongo {
             i.loc = new OpTime[1];
             i.loc[0] = last;
             _dirty = true;
+
             if ( ! _started ){
+                // start background thread here since we definitely need it
                 _started = true;
                 go();
             }
-        }
 
+        }
+        
         bool opReplicatedEnough( OpTime op , int w ){
-            if ( w <= 1 )
+            RARELY {
+                REPLDEBUG( "looking for : " << op << " w=" << w );
+            }
+
+            if ( w <= 1 || ! _isMaster() )
                 return true;
+
             w--; // now this is the # of slaves i need
             scoped_lock mylk(_mutex);
             for ( map<Ident,Info>::iterator i=_slaves.begin(); i!=_slaves.end(); i++){
@@ -163,9 +186,11 @@ namespace mongo {
         if ( lastOp.isNull() )
             return;
         
-        assert( strstr( ns , "local.oplog.$" ) == ns );
+        assert( str::startsWith(ns, "local.oplog.") );
         
-        BSONObj rid = curop.getClient()->getRemoteID();
+        Client * c = curop.getClient();
+        assert(c);
+        BSONObj rid = c->getRemoteID();
         if ( rid.isEmpty() )
             return;
 

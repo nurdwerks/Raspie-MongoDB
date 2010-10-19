@@ -1,4 +1,4 @@
-// sock.h
+// @file sock.h
 
 /*    Copyright 2009 10gen Inc.
  *
@@ -17,34 +17,31 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 
 #include <stdio.h>
 #include <sstream>
 #include "goodies.h"
 #include "../db/jsobj.h"
 
-#define SOCK_FAMILY_UNKNOWN_ERROR 13078
-
 namespace mongo {
+
+    const int SOCK_FAMILY_UNKNOWN_ERROR=13078;
+    string getAddrInfoStrError(int code);
 
 #if defined(_WIN32)
 
     typedef short sa_family_t;
     typedef int socklen_t;
-    inline int getLastError() {
-        return WSAGetLastError();
-    }
-    inline const char* gai_strerror(int code) {
-        return ::gai_strerrorA(code);
-    }
+    inline int getLastError() { return WSAGetLastError(); }
     inline void disableNagle(int sock) {
         int x = 1;
         if ( setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char *) &x, sizeof(x)) )
             out() << "ERROR: disableNagle failed" << endl;
+        if ( setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char *) &x, sizeof(x)) )
+            out() << "ERROR: SO_KEEPALIVE failed" << endl;
     }
-    inline void prebindOptions( int sock ) {
-    }
+    inline void prebindOptions( int sock ) { }
 
     // This won't actually be used on windows
     struct sockaddr_un {
@@ -65,6 +62,13 @@ namespace mongo {
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
+#ifdef __openbsd__
+# include <sys/uio.h>
+#endif
+
+#ifndef AI_ADDRCONFIG
+# define AI_ADDRCONFIG 0
+#endif
 
 namespace mongo {
 
@@ -84,7 +88,12 @@ namespace mongo {
 #endif
 
         if ( setsockopt(sock, level, TCP_NODELAY, (char *) &x, sizeof(x)) )
-            log() << "ERROR: disableNagle failed" << endl;
+            log() << "ERROR: disableNagle failed: " << errnoWithDescription() << endl;
+
+#ifdef SO_KEEPALIVE
+        if ( setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char *) &x, sizeof(x)) )
+            log() << "ERROR: SO_KEEPALIVE failed: " << errnoWithDescription() << endl;
+#endif
 
     }
     inline void prebindOptions( int sock ) {
@@ -101,14 +110,16 @@ namespace mongo {
         return "/tmp/mongodb-" + BSONObjBuilder::numStr(port) + ".sock";
     }
 
-    inline void setSockTimeouts(int sock, int secs) {
+    inline void setSockTimeouts(int sock, double secs) {
         struct timeval tv;
-        tv.tv_sec = secs;
-        tv.tv_usec = 0;
-        massert( 13083, "unable to set SO_RCVTIMEO",
-                setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &tv, sizeof(tv) ) == 0 );
-        massert( 13084, "unable to set SO_SNDTIMEO",
-                setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &tv, sizeof(tv) ) == 0 );
+        tv.tv_sec = (int)secs;
+        tv.tv_usec = (int)((long long)(secs*1000*1000) % (1000*1000));
+        bool report = logLevel > 3; // solaris doesn't provide these
+        DEV report = true;
+        bool ok = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &tv, sizeof(tv) ) == 0;
+        if( report && !ok ) log() << "unabled to set SO_RCVTIMEO" << endl;
+        ok = setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &tv, sizeof(tv) ) == 0;
+        DEV if( report && !ok ) log() << "unabled to set SO_RCVTIMEO" << endl;
     }
 
     // If an ip address is passed in, just return that.  If a hostname is passed
@@ -139,10 +150,6 @@ namespace mongo {
             return out;
         }
 
-        operator string() const{
-            return toString();
-        }
-
         // returns one of AF_INET, AF_INET6, or AF_UNIX
         sa_family_t getType() const {
             return sa.ss_family;
@@ -165,7 +172,7 @@ namespace mongo {
                     const int buflen=128;
                     char buffer[buflen];
                     int ret = getnameinfo(raw(), addressSize, buffer, buflen, NULL, 0, NI_NUMERICHOST);
-                    massert(13082, gai_strerror(ret), ret == 0);
+                    massert(13082, getAddrInfoStrError(ret), ret == 0);
                     return buffer;
                 }
 
@@ -231,17 +238,17 @@ namespace mongo {
         char buf[256];
         int ec = gethostname(buf, 127);
         if ( ec || *buf == 0 ) {
-            log() << "can't get this server's hostname " << OUTPUT_ERRNO << endl;
+            log() << "can't get this server's hostname " << errnoWithDescription() << endl;
             return "";
         }
         return buf;
     }
 
+    string getHostNameCached();
+
     class ListeningSockets {
     public:
-        ListeningSockets() : _sockets( new set<int>() ){
-        }
-        
+        ListeningSockets() : _mutex("ListeningSockets"), _sockets( new set<int>() ) { }
         void add( int sock ){
             scoped_lock lk( _mutex );
             _sockets->insert( sock );
@@ -250,7 +257,6 @@ namespace mongo {
             scoped_lock lk( _mutex );
             _sockets->erase( sock );
         }
-        
         void closeAll(){
             set<int>* s;
             {
@@ -258,17 +264,13 @@ namespace mongo {
                 s = _sockets;
                 _sockets = new set<int>();
             }
-
-            for ( set<int>::iterator i=s->begin(); i!=s->end(); i++ ){
+            for ( set<int>::iterator i=s->begin(); i!=s->end(); i++ ) {
                 int sock = *i;
-                log() << "\t going to close listening socket: " << sock << endl;
+                log() << "closing listening socket: " << sock << endl;
                 closesocket( sock );
-            }
-            
+            }            
         }
-        
         static ListeningSockets* get();
-
     private:
         mongo::mutex _mutex;
         set<int>* _sockets;

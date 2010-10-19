@@ -18,8 +18,9 @@
 #include "v8_wrapper.h"
 #include "v8_utils.h"
 #include "v8_db.h"
-#include "engine.h"
+#include "engine_v8.h"
 #include "util/base64.h"
+#include "util/text.h"
 #include "../client/syncclusterconnection.h"
 #include <iostream>
 
@@ -28,67 +29,75 @@ using namespace v8;
 
 namespace mongo {
 
-#define CONN_STRING (v8::String::New( "_conn" ))
-
 #define DDD(x)
 
     v8::Handle<v8::FunctionTemplate> getMongoFunctionTemplate( bool local ){
-        v8::Local<v8::FunctionTemplate> mongo = FunctionTemplate::New( local ? mongoConsLocal : mongoConsExternal );
+        v8::Local<v8::FunctionTemplate> mongo;
+        if ( local ) {
+            mongo = newV8Function< mongoConsLocal >();
+        } else {
+            mongo = newV8Function< mongoConsExternal >();
+        }
+        mongo->InstanceTemplate()->SetInternalFieldCount( 1 );
         
         v8::Local<v8::Template> proto = mongo->PrototypeTemplate();
 
-        proto->Set( v8::String::New( "find" ) , FunctionTemplate::New( mongoFind ) );
-        proto->Set( v8::String::New( "insert" ) , FunctionTemplate::New( mongoInsert ) );
-        proto->Set( v8::String::New( "remove" ) , FunctionTemplate::New( mongoRemove ) );
-        proto->Set( v8::String::New( "update" ) , FunctionTemplate::New( mongoUpdate ) );
+        proto->Set( v8::String::New( "find" ) , newV8Function< mongoFind >() );
+        proto->Set( v8::String::New( "insert" ) , newV8Function< mongoInsert >() );
+        proto->Set( v8::String::New( "remove" ) , newV8Function< mongoRemove >() );
+        proto->Set( v8::String::New( "update" ) , newV8Function< mongoUpdate >() );
 
-        Local<FunctionTemplate> ic = FunctionTemplate::New( internalCursorCons );
-        ic->PrototypeTemplate()->Set( v8::String::New("next") , FunctionTemplate::New( internalCursorNext ) );
-        ic->PrototypeTemplate()->Set( v8::String::New("hasNext") , FunctionTemplate::New( internalCursorHasNext ) );
+        Local<FunctionTemplate> ic = newV8Function< internalCursorCons >();
+        ic->InstanceTemplate()->SetInternalFieldCount( 1 );
+        ic->PrototypeTemplate()->Set( v8::String::New("next") , newV8Function< internalCursorNext >() );
+        ic->PrototypeTemplate()->Set( v8::String::New("hasNext") , newV8Function< internalCursorHasNext >() );
+        ic->PrototypeTemplate()->Set( v8::String::New("objsLeftInBatch") , newV8Function< internalCursorObjsLeftInBatch >() );
         proto->Set( v8::String::New( "internalCursor" ) , ic );
+        
+
 
         return mongo;
     }
 
     v8::Handle<v8::FunctionTemplate> getNumberLongFunctionTemplate() {
-        v8::Local<v8::FunctionTemplate> numberLong = FunctionTemplate::New( numberLongInit );
+        v8::Local<v8::FunctionTemplate> numberLong = newV8Function< numberLongInit >();
         v8::Local<v8::Template> proto = numberLong->PrototypeTemplate();
         
-        proto->Set( v8::String::New( "valueOf" ) , FunctionTemplate::New( numberLongValueOf ) );        
-        proto->Set( v8::String::New( "toNumber" ) , FunctionTemplate::New( numberLongToNumber ) );        
-        proto->Set( v8::String::New( "toString" ) , FunctionTemplate::New( numberLongToString ) );
+        proto->Set( v8::String::New( "valueOf" ) , newV8Function< numberLongValueOf >() );        
+        proto->Set( v8::String::New( "toNumber" ) , newV8Function< numberLongToNumber >() );        
+        proto->Set( v8::String::New( "toString" ) , newV8Function< numberLongToString >() );
         
         return numberLong;
     }
 
     v8::Handle<v8::FunctionTemplate> getBinDataFunctionTemplate() {
-        v8::Local<v8::FunctionTemplate> binData = FunctionTemplate::New( binDataInit );
+        v8::Local<v8::FunctionTemplate> binData = newV8Function< binDataInit >();
         v8::Local<v8::Template> proto = binData->PrototypeTemplate();
         
-        proto->Set( v8::String::New( "toString" ) , FunctionTemplate::New( binDataToString ) );        
+        proto->Set( v8::String::New( "toString" ) , newV8Function< binDataToString >() );        
         
         return binData;
     }    
     
     void installDBTypes( Handle<ObjectTemplate>& global ){
-        v8::Local<v8::FunctionTemplate> db = FunctionTemplate::New( dbInit );
+        v8::Local<v8::FunctionTemplate> db = newV8Function< dbInit >();
         db->InstanceTemplate()->SetNamedPropertyHandler( collectionFallback );
         global->Set(v8::String::New("DB") , db );
         
-        v8::Local<v8::FunctionTemplate> dbCollection = FunctionTemplate::New( collectionInit );
+        v8::Local<v8::FunctionTemplate> dbCollection = newV8Function< collectionInit >();
         dbCollection->InstanceTemplate()->SetNamedPropertyHandler( collectionFallback );
         global->Set(v8::String::New("DBCollection") , dbCollection );
 
 
-        v8::Local<v8::FunctionTemplate> dbQuery = FunctionTemplate::New( dbQueryInit );
+        v8::Local<v8::FunctionTemplate> dbQuery = newV8Function< dbQueryInit >();
         dbQuery->InstanceTemplate()->SetIndexedPropertyHandler( dbQueryIndexAccess );
         global->Set(v8::String::New("DBQuery") , dbQuery );
 
-        global->Set( v8::String::New("ObjectId") , FunctionTemplate::New( objectIdInit ) );
+        global->Set( v8::String::New("ObjectId") , newV8Function< objectIdInit >() );
 
-        global->Set( v8::String::New("DBRef") , FunctionTemplate::New( dbRefInit ) );
+        global->Set( v8::String::New("DBRef") , newV8Function< dbRefInit >() );
 
-        global->Set( v8::String::New("DBPointer") , FunctionTemplate::New( dbPointerInit ) );
+        global->Set( v8::String::New("DBPointer") , newV8Function< dbPointerInit >() );
 
         global->Set( v8::String::New("BinData") , getBinDataFunctionTemplate() );
 
@@ -97,24 +106,24 @@ namespace mongo {
     }
 
     void installDBTypes( Handle<v8::Object>& global ){
-        v8::Local<v8::FunctionTemplate> db = FunctionTemplate::New( dbInit );
+        v8::Local<v8::FunctionTemplate> db = newV8Function< dbInit >();
         db->InstanceTemplate()->SetNamedPropertyHandler( collectionFallback );
         global->Set(v8::String::New("DB") , db->GetFunction() );
         
-        v8::Local<v8::FunctionTemplate> dbCollection = FunctionTemplate::New( collectionInit );
+        v8::Local<v8::FunctionTemplate> dbCollection = newV8Function< collectionInit >();
         dbCollection->InstanceTemplate()->SetNamedPropertyHandler( collectionFallback );
         global->Set(v8::String::New("DBCollection") , dbCollection->GetFunction() );
 
 
-        v8::Local<v8::FunctionTemplate> dbQuery = FunctionTemplate::New( dbQueryInit );
+        v8::Local<v8::FunctionTemplate> dbQuery = newV8Function< dbQueryInit >();
         dbQuery->InstanceTemplate()->SetIndexedPropertyHandler( dbQueryIndexAccess );
         global->Set(v8::String::New("DBQuery") , dbQuery->GetFunction() );
 
-        global->Set( v8::String::New("ObjectId") , FunctionTemplate::New( objectIdInit )->GetFunction() );
+        global->Set( v8::String::New("ObjectId") , newV8Function< objectIdInit >()->GetFunction() );
 
-        global->Set( v8::String::New("DBRef") , FunctionTemplate::New( dbRefInit )->GetFunction() );
+        global->Set( v8::String::New("DBRef") , newV8Function< dbRefInit >()->GetFunction() );
         
-        global->Set( v8::String::New("DBPointer") , FunctionTemplate::New( dbPointerInit )->GetFunction() );
+        global->Set( v8::String::New("DBPointer") , newV8Function< dbPointerInit >()->GetFunction() );
 
         global->Set( v8::String::New("BinData") , getBinDataFunctionTemplate()->GetFunction() );
 
@@ -128,12 +137,13 @@ namespace mongo {
         global->Set( v8::String::New("MaxKey"), mongoToV8Element( i.next() ) );
         global->Set( v8::String::New("MinKey"), mongoToV8Element( i.next() ) );
         
-        global->Get( v8::String::New( "Object" ) )->ToObject()->Set( v8::String::New("bsonsize") , FunctionTemplate::New( bsonsize )->GetFunction() );
+        global->Get( v8::String::New( "Object" ) )->ToObject()->Set( v8::String::New("bsonsize") , newV8Function< bsonsize >()->GetFunction() );
     }
 
-    void destroyConnection( Persistent<Value> object, void* parameter){
-        // TODO
-        cout << "warning: destroyConnection not implemented" << endl;
+    void destroyConnection( Persistent<Value> self, void* parameter){
+        delete static_cast<DBClientBase*>(parameter);
+        self.Dispose();
+        self.Clear();
     }
 
     Handle<Value> mongoConsExternal(const Arguments& args){
@@ -148,47 +158,29 @@ namespace mongo {
             strcpy( host , "127.0.0.1" );
         }
 
-        DBClientWithCommands * conn = 0;
-        int commas = 0;
-        for ( int i=0; i<255; i++ ){
-            if ( host[i] == ',' )
-                commas++;
-            else if ( host[i] == 0 )
-                break;
-        }
+        string errmsg;
+        ConnectionString cs = ConnectionString::parse( host , errmsg );
+        if ( ! cs.isValid() )
+            return v8::ThrowException( v8::String::New( errmsg.c_str() ) );
         
-        if ( commas == 0 ){
-            DBClientConnection * c = new DBClientConnection( true );
-            string errmsg;
-            if ( ! c->connect( host , errmsg ) ){
-                delete c;
-                string x = "couldn't connect: ";
-                x += errmsg;
-                return v8::ThrowException( v8::String::New( x.c_str() ) );
-            }
-            conn = c;
+        
+        DBClientWithCommands * conn;
+        {
+            V8Unlock ul;
+            conn = cs.connect( errmsg );
         }
-        else if ( commas == 1 ){
-            DBClientPaired * c = new DBClientPaired();
-            if ( ! c->connect( host ) ){
-                delete c;
-                return v8::ThrowException( v8::String::New( "couldn't connect to pair" ) );
-            }
-            conn = c;
-        }
-        else if ( commas == 2 ){
-            conn = new SyncClusterConnection( host );
-        }
-        else {
-            return v8::ThrowException( v8::String::New( "too many commas" ) );
-        }
-                
-        Persistent<v8::Object> self = Persistent<v8::Object>::New( args.This() );
+        if ( ! conn )
+            return v8::ThrowException( v8::String::New( errmsg.c_str() ) );
+        
+        Persistent<v8::Object> self = Persistent<v8::Object>::New( args.Holder() );
         self.MakeWeak( conn , destroyConnection );
 
-        ScriptEngine::runConnectCallback( *conn );
-        // NOTE I don't believe the conn object will ever be freed.
-        args.This()->Set( CONN_STRING , External::New( conn ) );
+        {
+            V8Unlock ul;
+            ScriptEngine::runConnectCallback( *conn );
+        }
+
+        args.This()->SetInternalField( 0 , External::New( conn ) );
         args.This()->Set( v8::String::New( "slaveOk" ) , Boolean::New( false ) );
         args.This()->Set( v8::String::New( "host" ) , v8::String::New( host ) );
     
@@ -200,13 +192,17 @@ namespace mongo {
         if ( args.Length() > 0 )
             return v8::ThrowException( v8::String::New( "local Mongo constructor takes no args" ) );
 
-        DBClientBase * conn = createDirectClient();
+        DBClientBase * conn;
+        {
+            V8Unlock ul;
+            conn = createDirectClient();
+        }
 
         Persistent<v8::Object> self = Persistent<v8::Object>::New( args.This() );
         self.MakeWeak( conn , destroyConnection );
 
         // NOTE I don't believe the conn object will ever be freed.
-        args.This()->Set( CONN_STRING , External::New( conn ) );
+        args.This()->SetInternalField( 0 , External::New( conn ) );
         args.This()->Set( v8::String::New( "slaveOk" ) , Boolean::New( false ) );
         args.This()->Set( v8::String::New( "host" ) , v8::String::New( "EMBEDDED" ) );
         
@@ -223,13 +219,19 @@ namespace mongo {
 #endif
 
     DBClientBase * getConnection( const Arguments& args ){
-        Local<External> c = External::Cast( *(args.This()->Get( CONN_STRING )) );
+        Local<External> c = External::Cast( *(args.This()->GetInternalField( 0 )) );
         DBClientBase * conn = (DBClientBase*)(c->Value());
         assert( conn );
         return conn;
     }
 
     // ---- real methods
+
+    void destroyCursor( Persistent<Value> self, void* parameter){
+        delete static_cast<mongo::DBClientCursor*>(parameter);
+        self.Dispose();
+        self.Clear();
+    }
 
     /**
        0 - namespace
@@ -239,6 +241,8 @@ namespace mongo {
        4 - skip
     */
     Handle<Value> mongoFind(const Arguments& args){
+        HandleScope handle_scope;
+
         jsassert( args.Length() == 6 , "find needs 6 args" );
         jsassert( args[1]->IsObject() , "needs to be an object" );
         DBClientBase * conn = getConnection( args );
@@ -263,16 +267,17 @@ namespace mongo {
             int nToSkip = (int)(args[4]->ToNumber()->Value());
             int batchSize = (int)(args[5]->ToNumber()->Value());
             {
-                v8::Unlocker u;
+                V8Unlock u;
                 cursor = conn->query( ns, q ,  nToReturn , nToSkip , haveFields ? &fields : 0, slaveOk ? QueryOption_SlaveOk : 0 , batchSize );
             }
             v8::Function * cons = (v8::Function*)( *( mongo->Get( v8::String::New( "internalCursor" ) ) ) );
             assert( cons );
-            Local<v8::Object> c = cons->NewInstance();
-        
-            // NOTE I don't believe the cursor object will ever be freed.
-            c->Set( v8::String::New( "cursor" ) , External::New( cursor.release() ) );
-            return c;
+            
+            Persistent<v8::Object> c = Persistent<v8::Object>::New( cons->NewInstance() );
+            c.MakeWeak( cursor.get() , destroyCursor );
+            
+            c->SetInternalField( 0 , External::New( cursor.release() ) );
+            return handle_scope.Close(c);
         }
         catch ( ... ){
             return v8::ThrowException( v8::String::New( "socket error on query" ) );        
@@ -297,7 +302,7 @@ namespace mongo {
 
         DDD( "want to save : " << o.jsonString() );
         try {
-            v8::Unlocker u;
+            V8Unlock u;
             conn->insert( ns , o );
         }
         catch ( ... ){
@@ -308,7 +313,7 @@ namespace mongo {
     }
 
     v8::Handle<v8::Value> mongoRemove(const v8::Arguments& args){
-        jsassert( args.Length() == 2 , "remove needs 2 args" );
+        jsassert( args.Length() == 2 || args.Length() == 3 , "remove needs 2 args" );
         jsassert( args[1]->IsObject() , "have to remove an object template" );
 
         DBClientBase * conn = getConnection( args );
@@ -317,10 +322,15 @@ namespace mongo {
         v8::Handle<v8::Object> in = args[1]->ToObject();
         BSONObj o = v8ToMongo( in );
     
+        bool justOne = false;
+        if ( args.Length() > 2 ){
+            justOne = args[2]->BooleanValue();
+        }
+
         DDD( "want to remove : " << o.jsonString() );
         try {
-            v8::Unlocker u;
-            conn->remove( ns , o );
+            V8Unlock u;
+            conn->remove( ns , o , justOne );
         }
         catch ( ... ){
             return v8::ThrowException( v8::String::New( "socket error on remove" ) );
@@ -346,7 +356,7 @@ namespace mongo {
         try {
             BSONObj q1 = v8ToMongo( q );
             BSONObj o1 = v8ToMongo( o );
-            v8::Unlocker u;
+            V8Unlock u;
             conn->update( ns , q1 , o1 , upsert, multi );
         }
         catch ( ... ){
@@ -362,7 +372,8 @@ namespace mongo {
     // --- cursor ---
 
     mongo::DBClientCursor * getCursor( const Arguments& args ){
-        Local<External> c = External::Cast( *(args.This()->Get( v8::String::New( "cursor" ) ) ) );
+        Local<External> c = External::Cast( *(args.This()->GetInternalField( 0 ) ) );
+
         mongo::DBClientCursor * cursor = (mongo::DBClientCursor*)(c->Value());
         return cursor;
     }
@@ -377,7 +388,7 @@ namespace mongo {
             return v8::Undefined();
         BSONObj o;
         {
-            v8::Unlocker u;
+            V8Unlock u;
             o = cursor->next();
         }
         return mongoToV8( o );
@@ -389,10 +400,22 @@ namespace mongo {
             return Boolean::New( false );
         bool ret;
         {
-            v8::Unlocker u;
+            V8Unlock u;
             ret = cursor->more();
         }
         return Boolean::New( ret );
+    }
+
+    v8::Handle<v8::Value> internalCursorObjsLeftInBatch(const v8::Arguments& args){
+        mongo::DBClientCursor * cursor = getCursor( args );
+        if ( ! cursor )
+            return v8::Number::New( (double) 0 );
+        int ret;
+        {
+            V8Unlock u;
+            ret = cursor->objsLeftInBatch();
+        }
+        return v8::Number::New( (double) ret );
     }
 
 
@@ -623,17 +646,17 @@ namespace mongo {
         v8::String::Utf8Value data( it->Get( v8::String::New( "data" ) ) );
         
         stringstream ss;
-        ss << "BinData( type: " << type << ", base64: \"";
+        ss << "BinData(" << type << ",\"";
         base64::encode( ss, *data, len );
-        ss << "\" )";
+        ss << "\")";
         string ret = ss.str();
         return v8::String::New( ret.c_str() );
     }
 
     v8::Handle<v8::Value> numberLongInit( const v8::Arguments& args ) {
         
-        if (args.Length() != 1 && args.Length() != 3) {
-            return v8::ThrowException( v8::String::New( "NumberLong needs 1 or 3 arguments" ) );
+        if (args.Length() != 0 && args.Length() != 1 && args.Length() != 3) {
+            return v8::ThrowException( v8::String::New( "NumberLong needs 0, 1 or 3 arguments" ) );
         }
         
         v8::Handle<v8::Object> it = args.This();
@@ -642,9 +665,33 @@ namespace mongo {
             v8::Function* f = getNamedCons( "NumberLong" );
             it = f->NewInstance();
         }
-        
-        it->Set( v8::String::New( "floatApprox" ) , args[0] );
-        if ( args.Length() == 3 ) {
+
+        if ( args.Length() == 0 ) {
+            it->Set( v8::String::New( "floatApprox" ), v8::Number::New( 0 ) );
+        } else if ( args.Length() == 1 ) {
+            if ( args[ 0 ]->IsNumber() ) {
+                it->Set( v8::String::New( "floatApprox" ), args[ 0 ] );            
+            } else {
+                v8::String::Utf8Value data( args[ 0 ] );
+                string num = *data;
+                const char *numStr = num.c_str();
+                long long n;
+                try {
+                    n = parseLL( numStr );
+                } catch ( const AssertionException & ) {
+                    return v8::ThrowException( v8::String::New( "could not convert string to long long" ) );
+                }
+                unsigned long long val = n;
+                if ( (long long)val == (long long)(double)(long long)(val) ) {
+                    it->Set( v8::String::New( "floatApprox" ), v8::Number::New( (double)(long long)( val ) ) );
+                } else {
+                    it->Set( v8::String::New( "floatApprox" ), v8::Number::New( (double)(long long)( val ) ) );
+                    it->Set( v8::String::New( "top" ), v8::Integer::New( val >> 32 ) );
+                    it->Set( v8::String::New( "bottom" ), v8::Integer::New( (unsigned long)(val & 0x00000000ffffffff) ) );
+                }                
+            }
+        } else {
+            it->Set( v8::String::New( "floatApprox" ) , args[0] );
             it->Set( v8::String::New( "top" ) , args[1] );
             it->Set( v8::String::New( "bottom" ) , args[2] );
         }
@@ -687,20 +734,77 @@ namespace mongo {
         
         v8::Handle<v8::Object> it = args.This();
         
-        long long val = numberLongVal( it );
-        
         stringstream ss;
-        ss << val;
+        long long val = numberLongVal( it );
+        const long long limit = 2LL << 30;
+
+        if ( val <= -limit || limit <= val )
+            ss << "NumberLong(\"" << val << "\")";
+        else
+            ss << "NumberLong(" << val << ")";
+
         string ret = ss.str();
         return v8::String::New( ret.c_str() );
     }
     
     v8::Handle<v8::Value> bsonsize( const v8::Arguments& args ) {
         
-        if (args.Length() != 1 || !args[ 0 ]->IsObject()) {
-            return v8::ThrowException( v8::String::New( "bonsisze needs 1 object" ) );
-        }
+        if ( args.Length() != 1 )
+            return v8::ThrowException( v8::String::New( "bonsisze needs 1 argument" ) );
+
+        if ( args[0]->IsNull() )
+            return v8::Number::New(0);
+
+        if ( ! args[ 0 ]->IsObject() ) 
+            return v8::ThrowException( v8::String::New( "argument to bonsisze has to be an object" ) );
 
         return v8::Number::New( v8ToMongo( args[ 0 ]->ToObject() ).objsize() );
     }
+
+    // to be called with v8 mutex
+    void enableV8Interrupt() {
+        if ( globalScriptEngine->haveGetInterruptSpecCallback() ) {
+            __interruptSpecToThreadId[ globalScriptEngine->getInterruptSpec() ] = v8::V8::GetCurrentThreadId();
+        }
+    }
+    
+    // to be called with v8 mutex
+    void disableV8Interrupt() {
+        if ( globalScriptEngine->haveGetInterruptSpecCallback() ) {
+            __interruptSpecToThreadId.erase( globalScriptEngine->getInterruptSpec() );
+        }        
+    }
+
+    namespace v8Locks {
+        boost::mutex& __v8Mutex = *( new boost::mutex );
+        ThreadLocalValue< bool > __locked;
+
+        RecursiveLock::RecursiveLock() : _unlock() {
+            if ( !__locked.get() ) {
+                __v8Mutex.lock();
+                __locked.set( true );
+                _unlock = true;
+            }
+        }
+        RecursiveLock::~RecursiveLock() {
+            if ( _unlock ) {
+                __v8Mutex.unlock();
+                __locked.set( false );
+            }
+        }
+            
+        RecursiveUnlock::RecursiveUnlock() : _lock() {
+            if ( __locked.get() ) {
+                __v8Mutex.unlock();
+                __locked.set( false );
+                _lock = true;
+            }
+        }
+        RecursiveUnlock::~RecursiveUnlock() {
+            if ( _lock ) {
+                __v8Mutex.lock();
+                __locked.set( true );
+            }
+        }
+    } // namespace v8Locks
 }

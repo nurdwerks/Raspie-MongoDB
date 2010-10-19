@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "../../stdafx.h"
+#include "../../pch.h"
 #include "../jsobj.h"
 #include "../../util/message.h"
 #include "../../util/processinfo.h"
@@ -33,31 +33,31 @@ namespace mongo {
         
         OpCounters();
 
-        int * getInsert(){ return _insert; }
-        int * getQuery(){ return _query; }
-        int * getUpdate(){ return _update; }
-        int * getDelete(){ return _delete; }
-        int * getGetMore(){ return _getmore; }
-        int * getCommand(){ return _command; }
+        AtomicUInt * getInsert(){ return _insert; }
+        AtomicUInt * getQuery(){ return _query; }
+        AtomicUInt * getUpdate(){ return _update; }
+        AtomicUInt * getDelete(){ return _delete; }
+        AtomicUInt * getGetMore(){ return _getmore; }
+        AtomicUInt * getCommand(){ return _command; }
         
-        void gotInsert(){ _insert[0]++; }
-        void gotQuery(){ _query[0]++; }
-        void gotUpdate(){ _update[0]++; }
-        void gotDelete(){ _delete[0]++; }
-        void gotGetMore(){ _getmore[0]++; }
-        void gotCommand(){ _command[0]++; }
+        void gotInsert(){ if (0) _insert[0]++; }
+        void gotQuery(){ if (0) _query[0]++; }
+        void gotUpdate(){ if (0) _update[0]++; }
+        void gotDelete(){ if (0) _delete[0]++; }
+        void gotGetMore(){ if (0) _getmore[0]++; }
+        void gotCommand(){ if (0) _command[0]++; }
 
         void gotOp( int op , bool isCommand );
 
         BSONObj& getObj(){ return _obj; }
     private:
         BSONObj _obj;
-        int * _insert;
-        int * _query;
-        int * _update;
-        int * _delete;
-        int * _getmore;
-        int * _command;
+        AtomicUInt * _insert;
+        AtomicUInt * _query;
+        AtomicUInt * _update;
+        AtomicUInt * _delete;
+        AtomicUInt * _getmore;
+        AtomicUInt * _command;
     };
     
     extern OpCounters globalOpCounters;
@@ -123,6 +123,7 @@ namespace mongo {
 
     class GenericCounter {
     public:
+        GenericCounter() : _mutex("GenericCounter") { }
         void hit( const string& name , int count=0 );
         BSONObj getObj();
     private:

@@ -14,129 +14,384 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
-#include "replset.h"
+#include "pch.h"
+#include "rs.h"
 #include "health.h"
 #include "../../util/background.h"
 #include "../../client/dbclient.h"
 #include "../commands.h"
 #include "../../util/concurrency/value.h"
+#include "../../util/concurrency/task.h"
+#include "../../util/mongoutils/html.h"
+#include "../../util/goodies.h"
+#include "../../util/ramlog.h"
+#include "../helpers/dblogger.h"
+#include "connections.h"
+#include "../../util/unittest.h"
+#include "../dbhelpers.h"
+
+namespace mongo {
+    /* decls for connections.h */
+    ScopedConn::M& ScopedConn::_map = *(new ScopedConn::M());    
+    mutex ScopedConn::mapMutex("ScopedConn::mapMutex");
+}
 
 namespace mongo { 
 
-    class CmdReplSetHeartbeat : public Command {
-    public:
-        virtual bool slaveOk() { return true; }
-        virtual bool adminOnly() { return false; }
-        virtual bool logTheOp() { return false; }
-        virtual LockType locktype(){ return NONE; }
-        CmdReplSetHeartbeat() : Command("replSetHeartbeat") { }
-        virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
-            if( !replSet ) {
-                errmsg = "not a replset member";
-                return false;
-            }
-            if( theReplSet == 0 ) { 
-                errmsg = "still initializing";
-                return false;
-            }
-            if( theReplSet->getName() != cmdObj.getStringField("replSetHeartbeat") ) { 
-                errmsg = "set names do not match";
-                return false;
-            }
-            result.append("set", theReplSet->getName());
-            return true;
+    using namespace mongoutils::html;
+    using namespace bson;
+
+    static RamLog _rsLog;
+    Tee *rsLog = &_rsLog;
+
+    string ago(time_t t) { 
+        if( t == 0 ) return "";
+
+        time_t x = time(0) - t;
+        stringstream s;
+        if( x < 180 ) {
+            s << x << " sec";
+            if( x != 1 ) s << 's';
         }
-    } cmdReplSetHeartbeat;
+        else if( x < 3600 ) {
+            s.precision(2);
+            s << x / 60.0 << " mins";
+        }
+        else { 
+            s.precision(2);
+            s << x / 3600.0 << " hrs";
+        }
+        return s.str();
+    }
 
-    /* poll every other set member to check its status */
-    class FeedbackThread : public BackgroundJob {
-    public:
-        ReplSet::MemberInfo *m;
-
-    private:
-        void down() {
-            m->_health = 0.0;
-            if( m->_upSince ) {
-                m->_upSince = 0;
-                log() << "replSet " << m->fullName() << " is now down" << endl;
+    void Member::summarizeMember(stringstream& s) const { 
+        s << tr();
+        {
+            stringstream u;
+            u << "http://" << h().host() << ':' << (h().port() + 1000) << "/_replSet";
+            s << td( a(u.str(), "", fullName()) );
+        }
+        s << td( id() );
+        double h = hbinfo().health;
+        bool ok = h > 0;
+        s << td(red(str::stream() << h,h == 0));
+        s << td(ago(hbinfo().upSince));
+        bool never = false;
+        {
+            string h;
+            time_t hb = hbinfo().lastHeartbeat;
+            if( hb == 0 ) {
+                h = "never";
+                never = true;
             }
+            else h = ago(hb) + " ago";
+            s << td(h);
+        }
+        s << td(config().votes);
+        { 
+            string stateText = state().toString();
+            if( _config.hidden )
+                stateText += " (hidden)";
+            if( ok || stateText.empty() ) 
+                s << td(stateText); // text blank if we've never connected
+            else
+                s << td( grey(str::stream() << "(was " << state().toString() << ')', true) );
+        }
+        s << td( grey(hbinfo().lastHeartbeatMsg,!ok) );
+        stringstream q;
+        q << "/_replSetOplog?_id=" << id();
+        s << td( a(q.str(), "", never ? "?" : hbinfo().opTime.toString()) );
+        if( hbinfo().skew > INT_MIN ) {
+            s << td( grey(str::stream() << hbinfo().skew,!ok) );
+        } else
+            s << td("");
+        s << _tr();
+    }
+   
+    string ReplSetImpl::stateAsHtml(MemberState s) { 
+        if( s.s == MemberState::RS_STARTUP ) return a("", "serving still starting up, or still trying to initiate the set", "STARTUP");
+        if( s.s == MemberState::RS_PRIMARY ) return a("", "this server thinks it is primary", "PRIMARY");
+        if( s.s == MemberState::RS_SECONDARY ) return a("", "this server thinks it is a secondary (slave mode)", "SECONDARY");
+        if( s.s == MemberState::RS_RECOVERING ) return a("", "recovering/resyncing; after recovery usually auto-transitions to secondary", "RECOVERING");
+        if( s.s == MemberState::RS_FATAL ) return a("", "something bad has occurred and server is not completely offline with regard to the replica set.  fatal error.", "FATAL");
+        if( s.s == MemberState::RS_STARTUP2 ) return a("", "loaded config, still determining who is primary", "STARTUP2");
+        if( s.s == MemberState::RS_ARBITER ) return a("", "this server is an arbiter only", "ARBITER");
+        if( s.s == MemberState::RS_DOWN ) return a("", "member is down, slow, or unreachable", "DOWN");
+        if( s.s == MemberState::RS_ROLLBACK ) return a("", "rolling back operations to get in sync", "ROLLBACK");
+        return "";
+    }
+
+    string MemberState::toString() const { 
+        if( s == MemberState::RS_STARTUP ) return "STARTUP";
+        if( s == MemberState::RS_PRIMARY ) return "PRIMARY";
+        if( s == MemberState::RS_SECONDARY ) return "SECONDARY";
+        if( s == MemberState::RS_RECOVERING ) return "RECOVERING";
+        if( s == MemberState::RS_FATAL ) return "FATAL";
+        if( s == MemberState::RS_STARTUP2 ) return "STARTUP2";
+        if( s == MemberState::RS_ARBITER ) return "ARBITER";
+        if( s == MemberState::RS_DOWN ) return "DOWN";
+        if( s == MemberState::RS_ROLLBACK ) return "ROLLBACK";
+        return "";
+    }
+
+    extern time_t started;
+
+    // oplogdiags in web ui
+    static void say(stringstream&ss, const bo& op) {
+        ss << "<tr>";
+
+        set<string> skip;
+        be e = op["ts"];
+        if( e.type() == Date || e.type() == Timestamp ) { 
+            OpTime ot = e._opTime();
+	    ss << td( time_t_to_String_short( ot.getSecs() ) );
+            ss << td( ot.toString() );
+            skip.insert("ts");
+        }
+        else ss << td("?") << td("?");
+
+        e = op["h"];
+        if( e.type() == NumberLong ) {
+            ss << "<td>" << hex << e.Long() << "</td>\n";
+            skip.insert("h");
+        } else
+            ss << td("?");
+
+        ss << td(op["op"].valuestrsafe());
+        ss << td(op["ns"].valuestrsafe());
+        skip.insert("op");
+        skip.insert("ns");
+
+        ss << "<td>";
+        for( bo::iterator i(op); i.more(); ) { 
+            be e = i.next();
+            if( skip.count(e.fieldName()) ) continue;
+            ss << e.toString() << ' ';
+        }
+        ss << "</td>";
+
+        ss << "</tr>";
+        ss << '\n';
+    }
+
+    void ReplSetImpl::_getOplogDiagsAsHtml(unsigned server_id, stringstream& ss) const { 
+        const Member *m = findById(server_id);
+        if( m == 0 ) { 
+            ss << "Error : can't find a member with id: " << server_id << '\n';
+            return;
         }
 
-    public:
+        ss << p("Server : " + m->fullName() + "<br>ns : " + rsoplog );
 
-        void run() { 
-            mongo::lastError.reset( new LastError() );
-            DBClientConnection conn(true, 0, 10);
-            conn._logLevel = 2;
-            string err;
-            conn.connect(m->fullName(), err);
+        //const bo fields = BSON( "o" << false << "o2" << false );
+        const bo fields;
 
-            BSONObj cmd = BSON( "replSetHeartbeat" << theReplSet->getName() );
+        ScopedConn conn(m->fullName());        
+
+        auto_ptr<DBClientCursor> c = conn->query(rsoplog, Query().sort("$natural",1), 20, 0, &fields);
+        if( c.get() == 0 ) { 
+            ss << "couldn't query " << rsoplog;
+            return;
+        }
+        static const char *h[] = {"ts","optime", "h","op","ns","rest",0};
+
+        ss << "<style type=\"text/css\" media=\"screen\">"
+            "table { font-size:75% }\n"
+//            "th { background-color:#bbb; color:#000 }\n"
+//            "td,th { padding:.25em }\n"
+            "</style>\n";
+        
+        ss << table(h, true);
+        //ss << "<pre>\n";
+        int n = 0;
+        OpTime otFirst;
+        OpTime otLast;
+        OpTime otEnd;
+        while( c->more() ) {
+            bo o = c->next();
+            otLast = o["ts"]._opTime();
+            if( otFirst.isNull() ) 
+                otFirst = otLast;
+            say(ss, o);
+            n++;            
+        }
+        if( n == 0 ) {
+            ss << rsoplog << " is empty\n";
+        }
+        else { 
+            auto_ptr<DBClientCursor> c = conn->query(rsoplog, Query().sort("$natural",-1), 20, 0, &fields);
+            if( c.get() == 0 ) { 
+                ss << "couldn't query [2] " << rsoplog;
+                return;
+            }
+            string x;
+            bo o = c->next();
+            otEnd = o["ts"]._opTime();
             while( 1 ) {
-                try { 
-                    BSONObj info;
-                    bool ok = conn.runCommand("admin", cmd, info);
-                    m->_lastHeartbeat = time(0);
-                    if( ok ) {
-                        if( m->_upSince == 0 ) {
-                            log() << "replSet " << m->fullName() << " is now up" << endl;
-                            m->_upSince = m->_lastHeartbeat;
-                        }
-                        m->_health = 1.0;
-                        m->_lastHeartbeatErrMsg.set("");
-                    }
-                    else { 
-                        down();
-                        m->_lastHeartbeatErrMsg.set(info.getStringField("errmsg"));
-                    }
-                }
-                catch(...) { 
-                    down();
-                    m->_lastHeartbeatErrMsg.set("connect/transport error");
-                }
-                sleepsecs(2);
+                stringstream z;
+                if( o["ts"]._opTime() == otLast ) 
+                    break;
+                say(z, o);
+                x = z.str() + x;
+                if( !c->more() )
+                    break;
+                o = c->next();
+            }
+            if( !x.empty() ) {
+                ss << "<tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>\n" << x;
+                //ss << "\n...\n\n" << x;
             }
         }
-    };
+        ss << _table();
+        ss << p(time_t_to_String_short(time(0)) + " current time");
 
-    void ReplSet::summarizeStatus(BSONObjBuilder& b) const { 
-        MemberInfo *m =_members.head();
+        //ss << "</pre>\n";
+
+        if( !otEnd.isNull() ) {
+            ss << "<p>Log length in time: ";
+            unsigned d = otEnd.getSecs() - otFirst.getSecs();
+            double h = d / 3600.0;
+            ss.precision(3);
+            if( h < 72 )
+                ss << h << " hours";
+            else 
+                ss << h / 24.0 << " days";
+            ss << "</p>\n";
+        }
+
+    }
+
+    void ReplSetImpl::_summarizeAsHtml(stringstream& s) const { 
+        s << table(0, false);
+        s << tr("Set name:", _name);
+        s << tr("Majority up:", elect.aMajoritySeemsToBeUp()?"yes":"no" );
+        s << _table();
+
+        const char *h[] = {"Member", 
+            "<a title=\"member id in the replset config\">id</a>", 
+            "Up", 
+            "<a title=\"length of time we have been continuously connected to the other member with no reconnects (for self, shows uptime)\">cctime</a>", 
+            "<a title=\"when this server last received a heartbeat response - includes error code responses\">Last heartbeat</a>", 
+            "Votes", "State", "Status", 
+            "<a title=\"how up to date this server is.  this value polled every few seconds so actually lag is typically much lower than value shown here.\">optime</a>", 
+            "<a title=\"Clock skew in seconds relative to this server. Informational; server clock variances will make the diagnostics hard to read, but otherwise are benign..\">skew</a>", 
+            0};
+        s << table(h);
+
+        /* this is to sort the member rows by their ordinal _id, so they show up in the same 
+           order on all the different web ui's; that is less confusing for the operator. */
+        map<int,string> mp;
+
+        string myMinValid;
+        try {
+            readlocktry lk("local.replset.minvalid", 300);
+            if( lk.got() ) {
+                BSONObj mv;
+                if( Helpers::getSingleton("local.replset.minvalid", mv) ) { 
+                    myMinValid = "minvalid:" + mv["ts"]._opTime().toString();
+                }
+            }
+            else myMinValid = ".";
+        }
+        catch(...) { 
+            myMinValid = "exception fetching minvalid";
+        }
+
+        {
+            stringstream s;
+            /* self row */
+            s << tr() << td(_self->fullName() + " (me)") <<
+                td(_self->id()) <<
+  	        td("1") <<  //up
+                td(ago(started)) << 
+	        td("") << // last heartbeat
+                td(ToString(_self->config().votes)) << 
+                td( stateAsHtml(box.getState()) + (_self->config().hidden?" (hidden)":"") );
+            s << td( _hbmsg );
+            stringstream q;
+            q << "/_replSetOplog?_id=" << _self->id();
+            s << td( a(q.str(), myMinValid, theReplSet->lastOpTimeWritten.toString()) );
+            s << td(""); // skew
+            s << _tr();
+			mp[_self->hbinfo().id()] = s.str();
+        }
+        Member *m = head();
+        while( m ) {
+			stringstream s;
+            m->summarizeMember(s);
+			mp[m->hbinfo().id()] = s.str();
+            m = m->next();
+        }
+
+        for( map<int,string>::const_iterator i = mp.begin(); i != mp.end(); i++ )
+            s << i->second;
+        s << _table();
+    }
+
+
+    void fillRsLog(stringstream& s) {
+        _rsLog.toHTML( s );
+    }
+
+    const Member* ReplSetImpl::findById(unsigned id) const { 
+        if( id == _self->id() ) return _self;
+        for( Member *m = head(); m; m = m->next() )
+            if( m->id() == id ) 
+                return m;
+        return 0;
+    }
+
+    void ReplSetImpl::_summarizeStatus(BSONObjBuilder& b) const { 
         vector<BSONObj> v;
 
         // add self
         {
             HostAndPort h(getHostName(), cmdLine.port);
-            v.push_back( BSON( "name" << h.toString() << "self" << true ) );
+
+            BSONObjBuilder bb;
+            bb.append("_id", (int) _self->id());
+            bb.append("name", h.toString());
+            bb.append("health", 1.0);
+            bb.append("state", (int) box.getState().s);
+            bb.append("stateStr", box.getState().toString());
+            string s = _self->lhb();
+            if( !s.empty() )
+                bb.append("errmsg", s);
+            bb.append("self", true);
+            v.push_back(bb.obj());
         }
 
+        Member *m =_members.head();
         while( m ) {
             BSONObjBuilder bb;
+            bb.append("_id", (int) m->id());
             bb.append("name", m->fullName());
-            bb.append("health", m->health());
-            bb.append("uptime", (unsigned) (m->upSince() ? (time(0)-m->upSince()) : 0));
-            bb.appendDate("lastHeartbeat", m->lastHeartbeat());
-            bb.append("errmsg", m->_lastHeartbeatErrMsg.get());
+            bb.append("health", m->hbinfo().health);
+            bb.append("state", (int) m->state().s);
+            bb.append("stateStr", m->state().toString());
+            bb.append("uptime", (unsigned) (m->hbinfo().upSince ? (time(0)-m->hbinfo().upSince) : 0));
+            bb.appendTimestamp("optime", m->hbinfo().opTime.asDate());
+            bb.appendDate("optimeDate", m->hbinfo().opTime.getSecs() * 1000LL);
+            bb.appendTimeT("lastHeartbeat", m->hbinfo().lastHeartbeat);
+            string s = m->lhb();
+            if( !s.empty() )
+                bb.append("errmsg", s);
             v.push_back(bb.obj());
             m = m->next();
         }
-        b.append("set", getName());
-        b.appendDate("date", time(0));
+        sort(v.begin(), v.end());
+        b.append("set", name());
+        b.appendTimeT("date", time(0));
+        b.append("myState", box.getState().s);
         b.append("members", v);
     }
 
-    void ReplSet::startHealthThreads() {
-        MemberInfo* m = _members.head();
-        while( m ) {
-            FeedbackThread *f = new FeedbackThread();
-            f->m = m;
-            f->go();
-            m = m->next();
+    static struct Test : public UnitTest { 
+        void run() { 
+            HealthOptions a,b;
+            assert( a == b );
+            assert( a.isDefault() );
         }
-    }
+    } test;
 
 }
-
-/* todo:
-   stop bg job and delete on removefromset
-*/

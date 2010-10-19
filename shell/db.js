@@ -122,12 +122,26 @@ DB.prototype.createCollection = function(name, opt) {
 }
 
 /**
+ * @deprecated use getProfilingStatus
  *  Returns the current profiling level of this database
  *  @return SOMETHING_FIXME or null on error
  */
- DB.prototype.getProfilingLevel  = function() { 
+DB.prototype.getProfilingLevel  = function() { 
     var res = this._dbCommand( { profile: -1 } );
     return res ? res.was : null;
+}
+
+/**
+ *  @return the current profiling status
+ *  example { was : 0, slowms : 100 }
+ *  @return SOMETHING_FIXME or null on error
+ */
+DB.prototype.getProfilingStatus  = function() { 
+    var res = this._dbCommand( { profile: -1 } );
+    if ( ! res.ok )
+        throw "profile command failed: " + tojson( res );
+    delete res.ok
+    return res;
 }
 
 
@@ -270,9 +284,11 @@ DB.prototype.help = function() {
     print("\tdb.getMongo().setSlaveOk() allow this connection to read from the nonmaster member of a replica pair");
     print("\tdb.getName()");
     print("\tdb.getPrevError()");
-    print("\tdb.getProfilingLevel()");
+    print("\tdb.getProfilingLevel() - deprecated");
+    print("\tdb.getProfilingStatus() - returns if profiling is on and slow threshold ");
     print("\tdb.getReplicationInfo()");
-    print("\tdb.getSisterDB(name) get the db at the same server as this onew");
+    print("\tdb.getSisterDB(name) get the db at the same server as this one");
+    print("\tdb.isMaster() check replica primary status");
     print("\tdb.killOp(opid) kills the current operation in the db");
     print("\tdb.listCommands() lists all the db commands");
     print("\tdb.printCollectionStats()");
@@ -477,6 +493,12 @@ DB.prototype.forceError = function(){
 }
 
 DB.prototype.getLastError = function( w , wtimeout ){
+    var res = this.getLastErrorObj( w , wtimeout );
+    if ( ! res.ok )
+        throw "getlasterror failed: " + tojson( res );
+    return res.err;
+}
+DB.prototype.getLastErrorObj = function( w , wtimeout ){
     var cmd = { getlasterror : 1 };
     if ( w ){
         cmd.w = w;
@@ -484,12 +506,7 @@ DB.prototype.getLastError = function( w , wtimeout ){
             cmd.wtimeout = wtimeout;
     }
     var res = this.runCommand( cmd );
-    if ( ! res.ok )
-        throw "getlasterror failed: " + tojson( res );
-    return res.err;
-}
-DB.prototype.getLastErrorObj = function(){
-    var res = this.runCommand( { getlasterror : 1 } );
+
     if ( ! res.ok )
         throw "getlasterror failed: " + tojson( res );
     return res;
@@ -513,17 +530,17 @@ DB.prototype.getCollectionNames = function(){
 
     var nsLength = this._name.length + 1;
     
-    this.getCollection( "system.namespaces" ).find().sort({name:1}).forEach(
-        function(z){
-            var name = z.name;
-            
-            if ( name.indexOf( "$" ) >= 0 && name != "local.oplog.$main" )
-                return;
-            
-            all.push( name.substring( nsLength ) );
-        }
-    );
-    return all;
+    var c = this.getCollection( "system.namespaces" ).find();
+    while ( c.hasNext() ){
+        var name = c.next().name;
+        
+        if ( name.indexOf( "$" ) >= 0 && name.indexOf( ".oplog.$" ) < 0 )
+            continue;
+        
+        all.push( name.substring( nsLength ) );
+    }
+    
+    return all.sort();
 }
 
 DB.prototype.tojson = function(){
@@ -533,6 +550,8 @@ DB.prototype.tojson = function(){
 DB.prototype.toString = function(){
     return this._name;
 }
+
+DB.prototype.isMaster = function () { return this.runCommand("isMaster"); }
 
 DB.prototype.currentOp = function(){
     return db.$cmd.sys.inprog.findOne();
@@ -575,12 +594,15 @@ DB.prototype.getReplicationInfo = function() {
     var result = { };
     var ol = db.system.namespaces.findOne({name:"local.oplog.$main"});
     if( ol && ol.options ) {
-	result.logSizeMB = ol.options.size / 1000 / 1000;
+	result.logSizeMB = ol.options.size / ( 1024 * 1024 );
     } else {
 	result.errmsg  = "local.oplog.$main, or its options, not found in system.namespaces collection (not --master?)";
 	return result;
     }
 
+    result.usedMB = db.oplog.$main.stats().size / ( 1024 * 1024 );
+    result.usedMB = Math.ceil( result.usedMB * 100 ) / 100;
+    
     var firstc = db.oplog.$main.find().sort({$natural:1}).limit(1);
     var lastc = db.oplog.$main.find().sort({$natural:-1}).limit(1);
     if( !firstc.hasNext() || !lastc.hasNext() ) { 
@@ -626,13 +648,19 @@ DB.prototype.printReplicationInfo = function() {
 
 DB.prototype.printSlaveReplicationInfo = function() {
     function g(x) {
+        assert( x , "how could this be null (printSlaveReplicationInfo gx)" )
         print("source:   " + x.host);
-        var st = new Date( DB.tsToSeconds( x.syncedTo ) * 1000 );
-        var now = new Date();
-        print("syncedTo: " + st.toString() );
-        var ago = (now-st)/1000;
-        var hrs = Math.round(ago/36)/100;
-        print("          = " + Math.round(ago) + "secs ago (" + hrs + "hrs)"); 
+        if ( x.syncedTo ){
+            var st = new Date( DB.tsToSeconds( x.syncedTo ) * 1000 );
+            var now = new Date();
+            print("\t syncedTo: " + st.toString() );
+            var ago = (now-st)/1000;
+            var hrs = Math.round(ago/36)/100;
+            print("\t\t = " + Math.round(ago) + "secs ago (" + hrs + "hrs)"); 
+        }
+        else {
+            print( "\t doing initial sync" );
+        }
     }
     var L = this.getSisterDB("local");
     if( L.sources.count() == 0 ) { 
@@ -650,6 +678,10 @@ DB.prototype.serverStatus = function(){
     return this._adminCommand( "serverStatus" );
 }
 
+DB.prototype.serverCmdLineOpts = function(){
+    return this._adminCommand( "getCmdLineOpts" );
+}
+
 DB.prototype.version = function(){
     return this.serverBuildInfo().version;
 }
@@ -659,23 +691,36 @@ DB.prototype.listCommands = function(){
     for ( var name in x.commands ){
         var c = x.commands[name];
 
-        var s = name + " lock: ";
+        var s = name + ": ";
         
         switch ( c.lockType ){
-        case -1: s += "read"; break;
-        case 0: s += "node"; break;
-        case 1: s += "write"; break;
+        case -1: s += "read-lock"; break;
+        case  0: s += "no-lock"; break;
+        case  1: s += "write-lock"; break;
         default: s += c.lockType;
         }
         
-        s += " adminOnly: " + c.adminOnly;
-        s += " slaveOk: " + c.slaveOk;
-        s += " " + c.help;
+        if (c.adminOnly) s += " adminOnly ";
+        if (c.adminOnly) s += " slaveOk ";
+
+        s += "\n  ";
+        s += c.help.replace(/\n/g, '\n  ');
+        s += "\n";
         
-        print( s )
+        print( s );
     }
 }
 
 DB.prototype.printShardingStatus = function(){
     printShardingStatus( this.getSisterDB( "config" ) );
+}
+
+DB.autocomplete = function(obj){
+    var colls = obj.getCollectionNames();
+    var ret=[];
+    for (var i=0; i<colls.length; i++){
+        if (colls[i].match(/^[a-zA-Z0-9_.\$]+$/))
+            ret.push(colls[i]);
+    }
+    return ret;
 }

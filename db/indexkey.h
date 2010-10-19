@@ -18,13 +18,14 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "diskloc.h"
 #include "jsobj.h"
 #include <map>
 
 namespace mongo {
 
+    class Cursor;
     class IndexSpec;
     class IndexType; // TODO: this name sucks
     class IndexPlugin;
@@ -44,7 +45,7 @@ namespace mongo {
         virtual ~IndexType();
 
         virtual void getKeys( const BSONObj &obj, BSONObjSetDefaultOrder &keys ) const = 0;
-        virtual auto_ptr<Cursor> newCursor( const BSONObj& query , const BSONObj& order , int numWanted ) const = 0;
+        virtual shared_ptr<Cursor> newCursor( const BSONObj& query , const BSONObj& order , int numWanted ) const = 0;
         
         /** optional op : changes query to match what's in the index */
         virtual BSONObj fixKey( const BSONObj& in ) { return in; }
@@ -78,6 +79,16 @@ namespace mongo {
         virtual ~IndexPlugin(){}
         
         virtual IndexType* generate( const IndexSpec * spec ) const = 0;
+        
+        string getName() const { return _name; }
+
+        /**
+         * @return new keyPattern
+         * if nothing changes, should return keyPattern
+         */
+        virtual BSONObj adjustIndexSpec( const BSONObj& spec ) const { return spec; } 
+
+        // ------- static below -------
 
         static IndexPlugin* get( const string& name ){
             if ( ! _plugins )
@@ -88,12 +99,17 @@ namespace mongo {
             return i->second;
         }
 
-        string getName() const { return _name; }
+        /**
+         * @param keyPattern { x : "fts" }
+         * @return "" or the name
+         */
+        static string findPluginName( const BSONObj& keyPattern );
+
     private:
         string _name;
         static map<string,IndexPlugin*> * _plugins;
     };
-
+    
     /* precomputed details about an index, used for inserting keys on updates
        stored/cached in NamespaceDetailsTransient, or can be used standalone
        */

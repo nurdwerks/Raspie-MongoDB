@@ -23,13 +23,14 @@
 namespace mongo {
 
 	typedef bool ( *ServiceCallback )( void );
+    bool serviceParamsCheck( program_options::variables_map& params, const std::string dbpath, int argc, char* argv[] );
 
     class ServiceController {
     public:
         ServiceController();
         virtual ~ServiceController() {}
         
-        static bool installService( const std::wstring& serviceName, const std::wstring& displayName, const std::wstring& serviceDesc, int argc, char* argv[] );
+        static bool installService( const std::wstring& serviceName, const std::wstring& displayName, const std::wstring& serviceDesc, const std::wstring& serviceUser, const std::wstring& servicePassword, const std::string dbpath, int argc, char* argv[] );
         static bool removeService( const std::wstring& serviceName );
         static bool startService( const std::wstring& serviceName, ServiceCallback startService );
         static bool reportStatus( DWORD reportState, DWORD waitHint = 0 );

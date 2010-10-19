@@ -15,7 +15,7 @@
  *    limitations under the License.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "model.h"
 #include "connpool.h"
 
@@ -76,8 +76,8 @@ namespace mongo {
             else if ( myId.woCompare( _id.firstElement() ) ){
                 stringstream ss;
                 ss << "_id from serialize and stored differ: ";
-                ss << "[" << myId << "] != ";
-                ss << "[" << _id.firstElement() << "]";
+                ss << '[' << myId << "] != ";
+                ss << '[' << _id.firstElement() << ']';
                 throw UserException( 13121 , ss.str() );
             }
         }

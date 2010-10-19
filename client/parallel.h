@@ -16,46 +16,17 @@
  */
 
 /**
-   tools for wokring in parallel/sharded/clustered environment
+   tools for working in parallel/sharded/clustered environment
  */
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "dbclient.h"
+#include "redef_macros.h"
 #include "../db/dbmessage.h"
 #include "../db/matcher.h"
+#include "../util/concurrency/mvar.h"
 
 namespace mongo {
-
-    /**
-     * this is a cursor that works over a set of servers
-     * can be used in serial/paralellel as controlled by sub classes
-     */
-    class ClusteredCursor {
-    public:
-        ClusteredCursor( QueryMessage& q );
-        ClusteredCursor( const string& ns , const BSONObj& q , int options=0 , const BSONObj& fields=BSONObj() );
-        virtual ~ClusteredCursor();
-
-        virtual bool more() = 0;
-        virtual BSONObj next() = 0;
-        
-        static BSONObj concatQuery( const BSONObj& query , const BSONObj& extraFilter );
-        
-        virtual string type() const = 0;
-
-    protected:
-        auto_ptr<DBClientCursor> query( const string& server , int num = 0 , BSONObj extraFilter = BSONObj() );
-
-        static BSONObj _concatFilter( const BSONObj& filter , const BSONObj& extraFilter );
-        
-        string _ns;
-        BSONObj _query;
-        int _options;
-        BSONObj _fields;
-
-        bool _done;
-    };
-
 
     /**
      * holder for a server address and a query to run
@@ -79,7 +50,7 @@ namespace mongo {
 
         string toString() const {
             StringBuilder ss;
-            ss << "server:" << _server << " _extra:" << _extra << " _orderObject:" << _orderObject;
+            ss << "server:" << _server << " _extra:" << _extra.toString() << " _orderObject:" << _orderObject.toString();
             return ss.str();
         }
 
@@ -91,6 +62,51 @@ namespace mongo {
         BSONObj _extra;
         BSONObj _orderObject;
     };
+
+    /**
+     * this is a cursor that works over a set of servers
+     * can be used in serial/paralellel as controlled by sub classes
+     */
+    class ClusteredCursor {
+    public:
+        ClusteredCursor( QueryMessage& q );
+        ClusteredCursor( const string& ns , const BSONObj& q , int options=0 , const BSONObj& fields=BSONObj() );
+        virtual ~ClusteredCursor();
+        
+        /** call before using */
+        void init();
+        
+        virtual bool more() = 0;
+        virtual BSONObj next() = 0;
+        
+        static BSONObj concatQuery( const BSONObj& query , const BSONObj& extraFilter );
+        
+        virtual string type() const = 0;
+
+        virtual BSONObj explain();
+
+    protected:
+        
+        virtual void _init() = 0;
+
+        auto_ptr<DBClientCursor> query( const string& server , int num = 0 , BSONObj extraFilter = BSONObj() , int skipLeft = 0 );
+        BSONObj explain( const string& server , BSONObj extraFilter = BSONObj() );
+        
+        static BSONObj _concatFilter( const BSONObj& filter , const BSONObj& extraFilter );
+        
+        virtual void _explain( map< string,list<BSONObj> >& out ) = 0;
+
+        string _ns;
+        BSONObj _query;
+        int _options;
+        BSONObj _fields;
+        int _batchSize;
+
+        bool _didInit;
+
+        bool _done;
+    };
+
 
     class FilteringClientCursor {
     public:
@@ -179,7 +195,12 @@ namespace mongo {
         virtual bool more();
         virtual BSONObj next();
         virtual string type() const { return "SerialServer"; }
-    private:
+
+    protected:
+        virtual void _explain( map< string,list<BSONObj> >& out );
+
+        void _init(){}
+
         vector<ServerAndQuery> _servers;
         unsigned _serverIndex;
         
@@ -202,9 +223,12 @@ namespace mongo {
         virtual bool more();
         virtual BSONObj next();
         virtual string type() const { return "ParallelSort"; }
-    private:
+    protected:
+        void _finishCons();
         void _init();
-        
+
+        virtual void _explain( map< string,list<BSONObj> >& out );
+
         int _numServers;
         set<ServerAndQuery> _servers;
         BSONObj _sortKey;
@@ -251,22 +275,21 @@ namespace mongo {
             string _db;
             BSONObj _cmd;
 
-            boost::thread _thr;
+            scoped_ptr<boost::thread> _thr;
             
             BSONObj _res;
-            bool _done;
             bool _ok;
+            bool _done;
             
             friend class Future;
         };
         
-        static void commandThread();
+        static void commandThread(shared_ptr<CommandResult> res);
         
         static shared_ptr<CommandResult> spawnCommand( const string& server , const string& db , const BSONObj& cmd );
-
-    private:
-        static shared_ptr<CommandResult> * _grab;
     };
 
     
 }
+
+#include "undef_macros.h"

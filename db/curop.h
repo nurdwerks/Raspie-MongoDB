@@ -20,11 +20,15 @@
 
 #include "namespace.h"
 #include "client.h"
-#include "../util/atomic_int.h"
+#include "../bson/util/atomic_int.h"
+#include "../util/concurrency/spin_lock.h"
+#include "../util/time_support.h"
 #include "db.h"
+#include "../scripting/engine.h"
 
 namespace mongo { 
 
+    /* lifespan is different than CurOp because of recursives with DBDirectClient */
     class OpDebug {
     public:
         StringBuilder str;
@@ -34,11 +38,95 @@ namespace mongo {
         }
     };
     
+    class CachedBSONObj {
+    public:
+        enum { TOO_BIG_SENTINEL = 1 } ;
+        static BSONObj _tooBig; // { $msg : "query not recording (too large)" }
+
+        CachedBSONObj(){
+            _size = &refLE<int>(_buf);
+            reset();
+        }
+        
+        void reset( int sz = 0 ){
+            _size[0] = sz;
+        }
+        
+        void set( const BSONObj& o ){
+            _lock.lock();
+            try {
+                int sz = o.objsize();
+                
+                if ( sz > (int) sizeof(_buf) ) { 
+                    reset(TOO_BIG_SENTINEL);
+                }
+                else {
+                    memcpy(_buf, o.objdata(), sz );
+                }
+                
+                _lock.unlock();
+            }
+            catch ( ... ){
+                _lock.unlock();
+                throw;
+            }
+            
+        }
+        
+        int size() const { return *_size; }
+        bool have() const { return size() > 0; }
+
+        BSONObj get( bool threadSafe ){
+            _lock.lock();
+            
+            BSONObj o;
+
+            try {
+                o = _get( threadSafe );
+                _lock.unlock();
+            }
+            catch ( ... ){
+                _lock.unlock();
+                throw;
+            }
+            
+            return o;
+            
+        }
+
+        void append( BSONObjBuilder& b , const StringData& name ){
+            _lock.lock();
+            try {
+                b.append( name , _get( false ) );
+                _lock.unlock();
+            }
+            catch ( ... ){
+                _lock.unlock();
+                throw;
+            }
+        }
+        
+    private:
+
+        /** you have to be locked when you call this */
+        BSONObj _get( bool getCopy ){
+            int sz = size();
+            if ( sz == 0 )
+                return BSONObj();
+            if ( sz == TOO_BIG_SENTINEL )
+                return _tooBig;
+            return BSONObj( _buf ).copy();
+        }
+
+        SpinLock _lock;
+        char _buf[512];
+        packedLE<int>::t* _size;
+    };
+
     /* Current operation (for the current Client).
        an embedded member of Client class, and typically used from within the mutex there. */
     class CurOp : boost::noncopyable {
         static AtomicUInt _nextOpNum;
-        static BSONObj _tooBig; // { $msg : "query not recording (too large)" }
         
         Client * _client;
         CurOp * _wrapped;
@@ -56,10 +144,7 @@ namespace mongo {
         AtomicUInt _opNum;
         char _ns[Namespace::MaxNsLen+2];
         struct SockAddr _remote;
-        
-        char _queryBuf[256];
-        
-        void resetQuery(int x=0) { copyLE<int>( _queryBuf, x ); }
+        CachedBSONObj _query;
         
         OpDebug _debug;
         
@@ -81,16 +166,9 @@ namespace mongo {
         }
 
     public:
-
-        bool haveQuery() const { return readLE<int>( _queryBuf ) != 0; }
-
-        BSONObj query() {
-            if( readLE<int>( _queryBuf ) == 1 ) { 
-                return _tooBig;
-            }
-            BSONObj o(_queryBuf);
-            return o;
-        }
+        
+        bool haveQuery() const { return _query.have(); }
+        BSONObj query( bool threadSafe = false ){ return _query.get( threadSafe );  }
 
         void ensureStarted(){
             if ( _start == 0 )
@@ -116,7 +194,7 @@ namespace mongo {
             _opNum = _nextOpNum++;
             _ns[0] = '?'; // just in case not set later
             _debug.reset();
-            resetQuery();            
+            _query.reset();
         }
         
         void reset( const SockAddr & remote, int op ) {
@@ -199,11 +277,7 @@ namespace mongo {
         }
 
         void setQuery(const BSONObj& query) { 
-            if( query.objsize() > (int) sizeof(_queryBuf) ) { 
-                resetQuery(1); // flag as too big and return
-                return;
-            }
-            memcpy(_queryBuf, query.objdata(), query.objsize());
+            _query.set( query ); 
         }
 
         Client * getClient() const { 
@@ -224,13 +298,9 @@ namespace mongo {
             // placed here as a precaution because currentOp may be accessed
             // without the db mutex.
             memset(_ns, 0, sizeof(_ns));
-            memset(_queryBuf, 0, sizeof(_queryBuf));
         }
         
-        ~CurOp(){
-            if ( _wrapped )
-                _client->_curOp = _wrapped;
-        }
+        ~CurOp();
 
         BSONObj info() { 
             if( ! cc().getAuthenticationInfo()->isAuthorized("admin") ) { 
@@ -243,15 +313,15 @@ namespace mongo {
         
         BSONObj infoNoauth();
 
-        string getRemoteString( bool incPort = true ){
-            return _remote.toString(incPort);
+        string getRemoteString( bool includePort = true ){
+            return _remote.toString(includePort);
         }
 
         ProgressMeter& setMessage( const char * msg , long long progressMeterTotal = 0 , int secondsBetween = 3 ){
 
             if ( progressMeterTotal ){
                 if ( _progressMeter.isActive() ){
-                    cout << "about to assert, old _message: " << _message << endl;
+                    cout << "about to assert, old _message: " << _message << " new message:" << msg << endl;
                     assert( ! _progressMeter.isActive() );
                 }
                 _progressMeter.reset( progressMeterTotal , secondsBetween );
@@ -265,8 +335,8 @@ namespace mongo {
             return _progressMeter;
         }
         
-        string getMessage() const { return _message; }
-        ProgressMeter getProgressMeter() { return _progressMeter; }
+        string getMessage() const { return _message.toString(); }
+        ProgressMeter& getProgressMeter() { return _progressMeter; }
 
         friend class Client;
     };
@@ -279,17 +349,50 @@ namespace mongo {
         enum { Off, On, All } state;
         AtomicUInt toKill;
     public:
-        void killAll() { state = All; }
-        void kill(AtomicUInt i) { toKill = i; state = On; }
+        // the kill functions are not called with a mutex
+        void killAll() { state = All; interruptJs( 0 ); }
+        void kill(AtomicUInt i) { toKill = i; state = On; interruptJs( &i ); }
+        
+        // this is called without a mutex also, which means we can miss some
+        // kill requests; it's no worse than what the code was doing before,
+        // though, so I don't feel too bad about adding this function.
+        // hopefully we will have time for SERVER-1816 to fix this
+        void finishOp() {
+            if( state == On && cc().curop()->opNum() == toKill ) { 
+                state = Off;
+            }
+        }
         
         void checkForInterrupt() { 
             if( state != Off ) { 
-                if( state == All ) 
+                if( state == All ) {
                     uasserted(11600,"interrupted at shutdown");
+                }
                 if( cc().curop()->opNum() == toKill ) { 
-                    state = Off;
                     uasserted(11601,"interrupted");
                 }
+            }
+        }
+        
+        const char *checkForInterruptNoAssert() {
+            if( state != Off ) { 
+                if( state == All ) 
+                    return "interrupted at shutdown";
+                if( cc().curop()->opNum() == toKill ) { 
+                    return "interrupted";
+                }
+            }
+            return "";
+        }
+        
+        void interruptJs( AtomicUInt *op ) {
+            if ( !globalScriptEngine ) {
+                return;
+            }
+            if ( !op ) {
+                globalScriptEngine->interruptAll();
+            } else {
+                globalScriptEngine->interrupt( *op );
             }
         }
     } killCurrentOp;

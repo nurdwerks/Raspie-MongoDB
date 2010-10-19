@@ -15,7 +15,7 @@
  *    limitations under the License.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "mmap.h"
 
 /* in memory (no file) version */
@@ -45,6 +45,8 @@ namespace mongo {
     void MemoryMappedFile::flush(bool sync) {
     }
     
+    void MemoryMappedFile::_lock() {}
+    void MemoryMappedFile::_unlock() {}
 
 } 
 

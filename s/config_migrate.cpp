@@ -16,7 +16,7 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "../util/message.h"
 #include "../util/unittest.h"
 #include "../client/connpool.h"
@@ -36,7 +36,7 @@ namespace mongo {
             return 0;
         
         if ( cur == 0 ){
-            ShardConnection conn( _primary );
+            ScopedDbConnection conn( _primary );
             conn->insert( "config.version" , BSON( "_id" << 1 << "version" << VERSION ) );
             pool.flush();
             assert( VERSION == dbConfigVersion( conn.conn() ) );
@@ -55,13 +55,13 @@ namespace mongo {
                 return -9;
             }
             
-            ShardConnection conn( _primary );
+            ScopedDbConnection conn( _primary );
             
             // do a backup
             string backupName;
             {
                 stringstream ss;
-                ss << "config-backup-" << terseCurrentTime();
+                ss << "config-backup-" << terseCurrentTime(false);
                 backupName = ss.str();
             }
             log() << "backing up config to: " << backupName << endl;
@@ -134,7 +134,7 @@ namespace mongo {
                     }
 
                     BSONObj x = b.obj();
-                    cout << old << "\n\t" << x << endl;
+                    log() << old << "\n\t" << x << endl;
                     newDBs[old["name"].String()] = x;
                 }
 
@@ -169,7 +169,7 @@ namespace mongo {
                     }
                     
                     BSONObj n = b.obj();
-                    cout << x << "\n\t" << n << endl;
+                    log() << x << "\n\t" << n << endl;
                     chunks[id] = n;
                     num++;
                 }

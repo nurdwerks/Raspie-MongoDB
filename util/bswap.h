@@ -1,19 +1,22 @@
 
+#pragma once
 
 #ifndef MONGO_BSWAP_H
 #define MONGO_BSWAP_H
 
 #include "boost/detail/endian.hpp"
+#include "boost/static_assert.hpp"
 #include <string.h>
 
 namespace mongo {
 
-   template<class T> T byteSwap( T j ) {
-      T retVal = 0;
-      for( unsigned i = 0; i < sizeof( T ); ++i ) {
+   // Generic (portable) byte swap function
+   template<class T> T byteSwap( T j ) {      
+      T retVal = j;
+      for( int i = 0; i < int(sizeof( T )) - 1; ++i ) {
          retVal <<= 8;
-         retVal |= ( j & 0xff );
          j >>= 8;
+         retVal |= j & 0xff;
       }
       return retVal;
    }
@@ -23,68 +26,56 @@ namespace mongo {
       return j;
 #else
       return byteSwap<T>(j);
-#endif
    }
 
+   BOOST_STATIC_ASSERT( sizeof( double ) == sizeof( unsigned long long ) );
+
+   // Here we assume that double is big endian if ints are big endian
+   // and also that the format is the same as for x86 when swapped.
    template<> inline double littleEndian( double j ) {
-      unsigned long long* toSwap = reinterpret_cast<unsigned long long*>( &j );
-      *toSwap = littleEndian<unsigned long long>( *toSwap );
-      return *reinterpret_cast<double*>( toSwap );
-   }
-  
-   template<class T> void copyLE( char* dest, T src ) {
-#if defined(BOOST_LITTLE_ENDIAN) && !defined( ALIGNMENT_IMPORTANT )
-      // This also assumes no alignment issues
-      *reinterpret_cast<T*>(dest) = src;
-#else
-      for ( unsigned i = 0; i < sizeof( T ); ++i ) {
-         dest[i] = src >> ( 8 * i );
-      }
+      union {
+         double d;
+         unsigned long long l;
+      } u;
+      u.d = j;
+      u.l = littleEndian<unsigned long long>( u.l );
+      return u.d;
 #endif
    }
- 
-   template<> inline void copyLE<double>( char* dest, double src ) {
-      copyLE<unsigned long long>( dest, *reinterpret_cast<unsigned long long*>( &src ) );
-   }
 
-   template<> inline void copyLE<bool>( char* dest, bool src ) {
-      *dest = src;
-   }
-
-   template<class T> void copyLE( void* dest, T src ) {
-      copyLE<T>( reinterpret_cast<char*>( dest ), src );
-   }
-   
-   template<class T> T readLE( const char* data ) {
-#if defined(BOOST_LITTLE_ENDIAN) && !defined( ALIGNMENT_IMPORTANT )
-      return *reinterpret_cast<const T*>( data );
-#else
-      T retval = 0;
-      const unsigned char* u_data = 
-            reinterpret_cast<const unsigned char*>( data );
-      for( unsigned i = 0; i < sizeof( T ); ++i ) {
-         retval |= T( u_data[i] ) << ( 8 * i );
-      }
-      return retval;
-#endif
-  }
-
-  template<> inline double readLE<double>( const char* data ) {
-     unsigned long long tmp = readLE<unsigned long long>( data );
-     return *reinterpret_cast<double*>( &tmp );
-  }
-  
   class Nullstream;
 
-  template<class T> class storageLE {
+  template<class T> struct aligned_storage {
   private:
-      T _val;
+     T _val;
+  public:
+     aligned_storage() {
+     }
+
+     aligned_storage( T val ) {
+        _val = littleEndian<T>(val);
+     }
+
+     operator T() const {
+        return littleEndian<T>(_val);
+     }
+  };
+
+  template<> struct aligned_storage<bool> {
+  private:
+     char _val;
+  };
+
+
+  template<class T, class S = aligned_storage<T> > class storageLE {
+  private:
+      S _val;
 
   public:
       storageLE() {}
- 
+
       storageLE& operator=( T val ) {
-         _val = littleEndian<T>( val );
+         _val = val;
          return *this;
       }
 
@@ -93,7 +84,7 @@ namespace mongo {
       }
 
       operator const T() const {
-         return littleEndian<T>( _val );
+         return _val;
       }
 
       storageLE& operator+=( T other ) {
@@ -145,6 +136,56 @@ namespace mongo {
      }
 
   };
+
+#pragma pack(1)
+  template<class T> struct packed_storage {
+  private:
+     T _val;
+  public:
+     packed_storage() {
+     }
+
+     packed_storage( T val ) {        
+        _val = littleEndian<T>( val );
+     }
+
+     operator T() const {
+        return littleEndian<T>( _val );
+     }
+  } __attribute__((packed)) ;
+
+  template<> struct packed_storage<bool> {
+  private:
+     char _val;
+  };
+
+  template<class T> struct packedLE {
+     typedef storageLE<T, packed_storage<T> > t;
+  };
+
+  BOOST_STATIC_ASSERT( sizeof( packedLE<bool>::t ) == 1 );
+#pragma pack()
+  
+  // Helper functions which will replace readLE. Can be used as pointers as well
+  template<class T> const typename packedLE<T>::t& refLE( const char* data ) {
+     return *reinterpret_cast<const typename packedLE<T>::t*>( data );
+  }
+  
+  template<class T> typename packedLE<T>::t& refLE( char* data ) {
+     return *reinterpret_cast<typename packedLE<T>::t*>( data );
+  }
+
+  template<class T> void copyLE( char* dest, T src ) {
+      refLE<T>( dest ) = src;
+  }
+
+  template<class T> void copyLE( void* dest, T src ) {
+     copyLE<T>( reinterpret_cast<char*>( dest ), src );
+  }
+
+  template<class T> T readLE( const char* data ) {
+     return refLE<T>( data );
+  }
 }
 
 #endif

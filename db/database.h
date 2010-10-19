@@ -22,6 +22,9 @@
 
 namespace mongo {
 
+    class ClientCursor;
+    struct ByLocKey;
+    typedef map<ByLocKey, ClientCursor*> CCByLoc;
 
     /**
      * Database represents a database database
@@ -32,54 +35,25 @@ namespace mongo {
     public:
         static bool _openAllFiles;
         
-        Database(const char *nm, bool& newDb, const string& _path = dbpath)
-            : name(nm), path(_path), namespaceIndex( path, name ) {
-            
-            { // check db name is valid
-                size_t L = strlen(nm);
-                uassert( 10028 ,  "db name is empty", L > 0 );
-                uassert( 10029 ,  "bad db name [1]", *nm != '.' );
-                uassert( 10030 ,  "bad db name [2]", nm[L-1] != '.' );
-                uassert( 10031 ,  "bad char(s) in db name", strchr(nm, ' ') == 0 );
-                uassert( 10032 ,  "db name too long", L < 64 );
-            }
+        Database(const char *nm, /*out*/ bool& newDb, const string& _path = dbpath);
+    private:
+        ~Database();
+    public:
+        /* you must use this to close - there is essential code in this method that is not in the ~Database destructor.
+           thus the destructor is private.  this could be cleaned up one day...
+        */
+        static void closeDatabase( const char *db, const string& path );
 
-            newDb = namespaceIndex.exists();
-            profile = 0;
-            profileName = name + ".system.profile";
-
-            // If already exists, open.  Otherwise behave as if empty until
-            // there's a write, then open.
-            if ( ! newDb || cmdLine.defaultProfile ) {
-                namespaceIndex.init();
-                if( _openAllFiles )
-                    openAllFiles();
-
-            }
-            
-            magic = 781231;
-        }
-        
-        ~Database() {
-            magic = 0;
-            btreeStore->closeFiles(name, path);
-            size_t n = files.size();
-            for ( size_t i = 0; i < n; i++ )
-                delete files[i];
-        }
-        
         /**
          * tries to make sure that this hasn't been deleted
          */
-        bool isOk(){
-            return magic == 781231;
-        }
+        bool isOk() const { return magic == 781231; }
 
         bool isEmpty(){
             return ! namespaceIndex.allocated();
         }
 
-        boost::filesystem::path fileName( int n ) {
+        boost::filesystem::path fileName( int n ) const {
             stringstream ss;
             ss << name << '.' << n;
             boost::filesystem::path fullName;
@@ -90,7 +64,7 @@ namespace mongo {
             return fullName;
         }
         
-        bool exists(int n) { 
+        bool exists(int n) const { 
             return boost::filesystem::exists( fileName( n ) );
         }
 
@@ -114,7 +88,7 @@ namespace mongo {
             namespaceIndex.init();
             if ( n < 0 || n >= DiskLoc::MaxFiles ) {
                 out() << "getFile(): n=" << n << endl;
-#if !defined(_RECSTORE)
+#if 0
                 if( n >= RecCache::Base && n <= RecCache::Base+1000 )
                     massert( 10294 , "getFile(): bad file number - using recstore db w/nonrecstore db build?", false);
 #endif
@@ -154,7 +128,7 @@ namespace mongo {
             return preallocateOnly ? 0 : p;
         }
 
-        MongoDataFile* addAFile( int sizeNeeded = 0, bool preallocateNextFile = false ) {
+        MongoDataFile* addAFile( int sizeNeeded, bool preallocateNextFile ) {
             int n = (int) files.size();
             MongoDataFile *ret = getFile( n, sizeNeeded );
             if ( preallocateNextFile )
@@ -168,12 +142,15 @@ namespace mongo {
             getFile( n, 0, true );
         }
 
-        MongoDataFile* suitableFile( int sizeNeeded ) {
+        MongoDataFile* suitableFile( int sizeNeeded, bool preallocate ) {
             MongoDataFile* f = newestFile();
+            if ( !f ) {
+                f = addAFile( sizeNeeded, preallocate );                
+            }
             for ( int i = 0; i < 8; i++ ) {
                 if ( f->getHeader()->unusedLength >= sizeNeeded )
                     break;
-                f = addAFile( sizeNeeded );
+                f = addAFile( sizeNeeded, preallocate );
                 if ( f->getHeader()->fileLength >= MongoDataFile::maxSize() ) // this is as big as they get so might as well stop
                     break;
             }
@@ -183,28 +160,54 @@ namespace mongo {
         Extent* allocExtent( const char *ns, int size, bool capped ) { 
             Extent *e = DataFileMgr::allocFromFreeList( ns, size, capped );
             if( e ) return e;
-            return suitableFile( size )->createExtent( ns, size, capped );
+            return suitableFile( size, !capped )->createExtent( ns, size, capped );
         }
         
         MongoDataFile* newestFile() {
             int n = (int) files.size();
-            if ( n > 0 ) n--;
+            if ( n > 0 ) {
+                n--;
+            } else {
+                return 0;   
+            }
             return getFile(n);
         }
         
         /**
-         * @return true if success, false otherwise
+         * @return true if success.  false if bad level or error creating profile ns
          */
         bool setProfilingLevel( int newLevel , string& errmsg );
 
         void finishInit();
+
+        static bool validDBName( const string& ns );
+
+        long long fileSize(){
+            long long size=0;
+            for (int n=0; exists(n); n++)
+                size += boost::filesystem::file_size( fileName(n) );
+            return size;
+        }
+
+        void flushFiles( bool sync );
+        
+        /**
+         * @return true if ns is part of the database
+         *         ns=foo.bar, db=foo returns true
+         */
+        bool ownsNS( const string& ns ) const {
+            if ( ! startsWith( ns , name ) )
+                return false;
+            return ns[name.size()] == '.';
+        }
         
         vector<MongoDataFile*> files;
-        string name; // "alleyinsider"
-        string path;
+        const string name; // "alleyinsider"
+        const string path;
         NamespaceIndex namespaceIndex;
         int profile; // 0=off.
-        string profileName; // "alleyinsider.system.profile"
+        const string profileName; // "alleyinsider.system.profile"
+        CCByLoc ccByLoc;
         int magic; // used for making sure the object is still loaded in memory 
     };
 

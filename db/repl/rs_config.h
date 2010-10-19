@@ -25,54 +25,75 @@
 
 namespace mongo { 
 
-/* 
-http://www.mongodb.org/display/DOCS/Replica+Set+Internals#ReplicaSetInternals-Configuration
+    /* singleton config object is stored here */
+    const string rsConfigNs = "local.system.replset";
 
-admin.replset
+    class ReplSetConfig {
+        enum { EMPTYCONFIG = -2 };
+    public:
+        /* if something is misconfigured, throws an exception. 
+        if couldn't be queried or is just blank, ok() will be false.
+        */
+        ReplSetConfig(const HostAndPort& h);
 
-This collection has one object per server in the set.  The objects have the form:
+        ReplSetConfig(BSONObj cfg);
 
- { set : <logical_set_name>, host : <hostname[+port]>
-   [, priority: <priority>]
-   [, arbiterOnly : true]
- }
+        bool ok() const { return _ok; }
 
-Additionally an object in this collection holds global configuration settings for the set:
+        struct MemberCfg {
+            MemberCfg() : _id(-1), votes(1), priority(1.0), arbiterOnly(false), slaveDelay(0), hidden(false), buildIndexes(true) { }
+            int _id;              /* ordinal */
+            unsigned votes;       /* how many votes this node gets. default 1. */
+            HostAndPort h;
+            double priority;      /* 0 means can never be primary */
+            bool arbiterOnly;
+            int slaveDelay;       /* seconds.  int rather than unsigned for convenient to/front bson conversion. */
+            bool hidden;          /* if set, don't advertise to drives in isMaster. for non-primaries (priority 0) */
+            bool buildIndexes;    /* if false, do not create any non-_id indexes */
 
- { _id : <logical_set_name>, settings:
-   { [heartbeatSleep : <seconds>]
-     [, heartbeatTimeout : <seconds>]
-     [, connRetries : <n>]
-     [, getLastErrorDefaults: <defaults>]
-   }
- }
-*/
+            void check() const;   /* check validity, assert if not. */
+            BSONObj asBson() const;
+            bool potentiallyHot() const { 
+                return !arbiterOnly && priority > 0;
+            }
+            bool operator==(const MemberCfg& r) const { 
+                return _id==r._id && votes == r.votes && h == r.h && priority == r.priority && 
+                    arbiterOnly == r.arbiterOnly && slaveDelay == r.slaveDelay && hidden == r.hidden &&
+                    buildIndexes == buildIndexes;
+            }
+            bool operator!=(const MemberCfg& r) const { return !(*this == r); }
+        };
 
-class ReplSetConfig {
-public:
-    /* if something is misconfigured, throws an exception. 
-       if couldn't be queried or is just blank, ok() will be false.
-       */
-    ReplSetConfig(const HostAndPort& h);
+        vector<MemberCfg> members;
+        string _id;
+        int version;
+        HealthOptions ho;
+        string md5;
+        BSONObj getLastErrorDefaults;
 
-    bool ok() const { return _ok; }
+        list<HostAndPort> otherMemberHostnames() const; // except self
 
-    struct Member {
-        HostAndPort h;
-        double priority;  /* 0 means can never be primary */
-        bool arbiterOnly;
+        /** @return true if could connect, and there is no cfg object there at all */
+        bool empty() const { return version == EMPTYCONFIG; }
+
+        string toString() const { return asBson().toString(); }
+
+        /** validate the settings. does not call check() on each member, you have to do that separately. */
+        void checkRsConfig() const;
+
+        /** check if modification makes sense */
+        static bool legalChange(const ReplSetConfig& old, const ReplSetConfig& n, string& errmsg);
+
+        //static void receivedNewConfig(BSONObj);
+        void saveConfigLocally(BSONObj comment); // to local db
+        string saveConfigEverywhere(); // returns textual info on what happened
+
+        BSONObj asBson() const;
+
+    private:
+        bool _ok;
+        void from(BSONObj);
+        void clear();
     };
-    vector<Member> members;
-    string _id;
-    int version;
-    HealthOptions healthOptions;
-    string md5;
-
-    /* TODO: add getLastErrorDefaults */
-
-private:
-    bool _ok;
-    void from(BSONObj);
-};
 
 }

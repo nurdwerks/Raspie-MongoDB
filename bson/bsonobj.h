@@ -17,9 +17,17 @@
 
 #pragma once
 
+#include <set>
+#include <list>
+#include <vector>
+#include "util/builder.h"
+#include "stringdata.h"
+
 namespace mongo {
 
     typedef set< BSONElement, BSONElementCmpWithoutField > BSONElementSet;
+
+    const int BSONObjMaxSize = 32 * 1024 * 1024;
 
     /**
 	   C++ representation of a "BSON" object -- that is, an extended JSON-style 
@@ -34,7 +42,7 @@ namespace mongo {
 
      BSON object format:
      
-     \code
+     code
      <unsigned totalSize> {<byte BSONType><cstring FieldName><Data>}* EOO
      
      totalSize includes itself.
@@ -61,6 +69,7 @@ namespace mongo {
      */
     class BSONObj {
     public:
+        
         /** Construct a BSONObj from data in the proper format. 
             @param ifree true if the BSONObj should free() the msgdata when 
             it destructs. 
@@ -70,23 +79,23 @@ namespace mongo {
         }
         BSONObj(const Record *r);
         /** Construct an empty BSONObj -- that is, {}. */
-        BSONObj() : _objdata( reinterpret_cast< const char * >( &emptyObject ) ) { }
+        BSONObj();
         // defensive
         ~BSONObj() { _objdata = 0; }
 
         void appendSelfToBufBuilder(BufBuilder& b) const {
             assert( objsize() );
-            b.append(reinterpret_cast<const void *>( objdata() ), objsize());
+            b.appendBuf(reinterpret_cast<const void *>( objdata() ), objsize());
         }
 
         /** Readable representation of a BSON object in an extended JSON-style notation. 
             This is an abbreviated representation which might be used for logging.
         */
-        string toString( bool isArray = false ) const;
-        operator string() const { return toString(); }
+        string toString( bool isArray = false, bool full=false ) const;
+        void toString(StringBuilder& s, bool isArray = false, bool full=false ) const;
         
         /** Properly formatted JSON string. 
-            @param pretty if tru1 we try to add some lf's and indentation
+            @param pretty if true we try to add some lf's and indentation
         */
         string jsonString( JsonStringFormat format = Strict, int pretty = 0 ) const;
 
@@ -105,9 +114,16 @@ namespace mongo {
            supports "." notation to reach into embedded objects
         */
         BSONElement getFieldDotted(const char *name) const;
+        /** return has eoo() true if no match
+           supports "." notation to reach into embedded objects
+        */
+        BSONElement getFieldDotted(const string& name) const {
+            return getFieldDotted( name.c_str() );
+        }
+
         /** Like getFieldDotted(), but expands multikey arrays and returns all matching objects
          */
-        void getFieldsDotted(const char *name, BSONElementSet &ret ) const;
+        void getFieldsDotted(const StringData& name, BSONElementSet &ret ) const;
         /** Like getFieldDotted(), but returns first array encountered while traversing the
             dotted fields of name.  The name variable is updated to represent field
             names with respect to the returned element. */
@@ -116,14 +132,7 @@ namespace mongo {
         /** Get the field of the specified name. eoo() is true on the returned 
             element if not found. 
         */
-        BSONElement getField(const char *name) const;
-
-        /** Get the field of the specified name. eoo() is true on the returned 
-            element if not found. 
-        */
-        BSONElement getField(const string name) const {
-            return getField( name.c_str() );
-        };
+        BSONElement getField(const StringData& name) const;
 
         /** Get the field of the specified name. eoo() is true on the returned 
             element if not found. 
@@ -137,7 +146,7 @@ namespace mongo {
         }
 
         BSONElement operator[] (int field) const { 
-            stringstream ss;
+            StringBuilder ss;
             ss << field;
             string s = ss.str();
             return getField(s.c_str());
@@ -160,17 +169,6 @@ namespace mongo {
         /** @return false if not present */
         bool getBoolField(const char *name) const;
 
-        /** makes a new BSONObj with the fields specified in pattern.
-           fields returned in the order they appear in pattern.
-           if any field is missing or undefined in the object, that field in the
-           output will be null.
-
-           sets output field names to match pattern field names.
-           If an array is encountered while scanning the dotted names in pattern,
-           that field is treated as missing.
-        */
-        BSONObj extractFieldsDotted(BSONObj pattern) const;
-        
         /**
            sets element field names to empty string
            If a field in pattern is missing, it is omitted from the returned
@@ -211,17 +209,7 @@ namespace mongo {
             return objsize() <= 5;
         }
 
-        void dump() const {
-            out() << hex;
-            const char *p = objdata();
-            for ( int i = 0; i < objsize(); i++ ) {
-                out() << i << '\t' << ( 0xff & ( (unsigned) *p ) );
-                if ( *p >= 'A' && *p <= 'z' )
-                    out() << '\t' << *p;
-                out() << endl;
-                p++;
-            }
-        }
+        void dump() const;
 
         /** Alternative output format */
         string hexDump() const;
@@ -242,7 +230,16 @@ namespace mongo {
         int woCompare(const BSONObj& r, const BSONObj &ordering = BSONObj(),
                       bool considerFieldName=true) const;
         
-        int woSortOrder( const BSONObj& r , const BSONObj& sortKey ) const;
+
+        bool operator<( const BSONObj& other ) const { return woCompare( other ) < 0; }
+        bool operator<=( const BSONObj& other ) const { return woCompare( other ) <= 0; }
+        bool operator>( const BSONObj& other ) const { return woCompare( other ) > 0; }
+        bool operator>=( const BSONObj& other ) const { return woCompare( other ) >= 0; }
+
+        /**
+         * @param useDotted whether to treat sort key fields as possibly dotted and expand into them
+         */
+        int woSortOrder( const BSONObj& r , const BSONObj& sortKey , bool useDotted=false ) const;
 
         /** This is "shallow equality" -- ints and doubles won't match.  for a
            deep equality test use woCompare (which is slower).
@@ -306,7 +303,7 @@ namespace mongo {
         /** @return an md5 value for this object. */
         string md5() const;
         
-        bool operator==( const BSONObj& other ){
+        bool operator==( const BSONObj& other ) const{
             return woCompare( other ) == 0;
         }
 
@@ -332,8 +329,30 @@ namespace mongo {
             opMAX_DISTANCE=0x15
         };               
 
-private:
+        /** add all elements of the object to the specified vector */
+        void elems(vector<BSONElement> &) const;
+        /** add all elements of the object to the specified list */
+        void elems(list<BSONElement> &) const;
+
+        /** add all values of the object to the specified vector.  If type mismatches, exception. */
+        template <class T>
+        void Vals(vector<T> &) const;
+        /** add all values of the object to the specified list.  If type mismatches, exception. */
+        template <class T>
+        void Vals(list<T> &) const;
+
+        /** add all values of the object to the specified vector.  If type mismatches, skip. */
+        template <class T>
+        void vals(vector<T> &) const;
+        /** add all values of the object to the specified list.  If type mismatches, skip. */
+        template <class T>
+        void vals(list<T> &) const;
+
         friend class BSONObjIterator;
+        typedef BSONObjIterator iterator;
+        BSONObjIterator begin();
+
+private:
         class Holder {
         public:
             Holder( const char *objdata ) :
@@ -353,27 +372,18 @@ private:
                 _holder.reset( new Holder( data ) );
             _objdata = data;
             if ( ! isValid() ){
-                stringstream ss;
-                ss << "Invalid BSONObj spec size: " << objsize();
+                StringBuilder ss;
+                int os = objsize();
+                ss << "Invalid BSONObj spec size: " << os << " (" << toHex( &os, 4 ) << ")";
                 try {
                     BSONElement e = firstElement();
                     ss << " first element:" << e.toString() << " ";
                 }
                 catch ( ... ){}
                 string s = ss.str();
-                massert( 10334 ,  s , 0 );
+                massert( 10334 , s , 0 );
             }
         }
-#pragma pack(1)
-        static struct EmptyObject {
-            EmptyObject() {
-                len = 5;
-                jstype = EOO;
-            }
-            storageLE<int> len;
-            char jstype;
-        } emptyObject;
-#pragma pack()
     };
     ostream& operator<<( ostream &s, const BSONObj &o );
     ostream& operator<<( ostream &s, const BSONElement &e );

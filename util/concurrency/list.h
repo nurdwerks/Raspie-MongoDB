@@ -23,18 +23,20 @@ namespace mongo {
 /* this class uses a mutex for writes, but not for reads. 
    we can get fancier later...
 
-        struct MemberInfo : public List1<MemberInfo>::Base {
+        struct Member : public List1<Member>::Base {
             const char *host;
             int port;
         };
-        List1<MemberInfo> _members;
+        List1<Member> _members;
         _members.head()->next();
 
 */
 template<typename T>
-class List1 : boost::noncopyable{
+class List1 : boost::noncopyable {
 public:
     /* next() and head() return 0 at end of list */
+
+    List1() : _head(0), _m("List1"), _orphans(0) { }
 
     class Base {
         friend class List1;
@@ -46,14 +48,19 @@ public:
     T* head() const { return _head; }
 
     void push(T* t) {
-        boost::mutex::scoped_lock lk(_m);
+        scoped_lock lk(_m);
         t->_next = _head;
-        _head = t;
+        _head = t; 
+    }
+
+    // intentionally leak.
+    void orphanAll() { 
+        _head = 0;
     }
 
     /* t is not deleted, but is removed from the list. (orphaned) */
     void orphan(T* t) { 
-        boost::mutex::scoped_lock lk(_m);
+        scoped_lock lk(_m);
         T *&prev = _head;
         T *n = prev;
         while( n != t ) {
@@ -65,11 +72,9 @@ public:
             log() << "warning orphans=" << _orphans << '\n';
     }
 
-    List1() : _head(0), _orphans(0) { }
-
 private:
     T *_head;
-    boost::mutex _m;
+    mutex _m;
     int _orphans;
 };
 

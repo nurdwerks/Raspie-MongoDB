@@ -32,38 +32,83 @@
 namespace mongo {
 
     struct ShardNS {
-        static string database;
         static string shard;
+        
+        static string database;
+        static string collection;
         static string chunk;
+
         static string mongos;
         static string settings;
     };
 
-    
-    class Grid;
+    /**
+     * Field names used in the 'shards' collection.
+     */
+    struct ShardFields {
+        static BSONField<bool> draining;      // is it draining chunks?
+        static BSONField<long long> maxSize;  // max allowed disk space usage
+    };
+        
     class ConfigServer;
 
-    extern ConfigServer configServer;
-    extern Grid grid;
+    class DBConfig;
+    typedef boost::shared_ptr<DBConfig> DBConfigPtr;
+
+    extern DBConfigPtr configServerPtr;
+    extern ConfigServer& configServer;
 
     class ChunkManager;
-
-    class CollectionInfo {
-    public:
-        CollectionInfo( ShardKeyPattern _key = BSONObj() , bool _unique = false ) : 
-            key( _key ) , unique( _unique ){}
-
-        ShardKeyPattern key;
-        bool unique;
-    };
+    typedef shared_ptr<ChunkManager> ChunkManagerPtr;
     
     /**
-     * top level grid configuration for an entire database
-     * TODO: use shared_ptr for ChunkManager
-    */
-    class DBConfig : public Model {
+     * top level configuration for a database
+     */
+    class DBConfig  {
+
+        struct CollectionInfo {
+            CollectionInfo(){
+                _dirty = false;
+                _dropped = false;
+            }
+            
+            CollectionInfo( DBConfig * db , const BSONObj& in );
+            
+            bool isSharded() const {
+                return _cm.get();
+            }
+            
+            ChunkManagerPtr getCM() const {
+                return _cm;
+            }
+
+            void shard( DBConfig * db , const string& ns , const ShardKeyPattern& key , bool unique );
+            void unshard();
+
+            bool isDirty() const { return _dirty; }
+            bool wasDropped() const { return _dropped; }
+            
+            void save( const string& ns , DBClientBase* conn );
+            
+
+        private:
+            ChunkManagerPtr _cm;
+            bool _dirty;
+            bool _dropped;
+        };
+        
+        typedef map<string,CollectionInfo> Collections;
+        
     public:
-        DBConfig( string name = "" ) : _name( name ) , _primary("") , _shardingEnabled(false){ }
+
+        DBConfig( string name ) 
+            : _name( name ) , 
+              _primary("config","") , 
+              _shardingEnabled(false), 
+              _lock("DBConfig"){
+            assert( name.size() );
+        }
+        virtual ~DBConfig(){}
         
         string getName(){ return _name; };
 
@@ -75,14 +120,14 @@ namespace mongo {
         }
         
         void enableSharding();
-        ChunkManager* shardCollection( const string& ns , ShardKeyPattern fieldsAndOrder , bool unique );
+        ChunkManagerPtr shardCollection( const string& ns , ShardKeyPattern fieldsAndOrder , bool unique );
         
         /**
-         * @return whether or not this partition is partitioned
+         * @return whether or not the 'ns' collection is partitioned
          */
         bool isSharded( const string& ns );
         
-        ChunkManager* getChunkManager( const string& ns , bool reload = false );
+        ChunkManagerPtr getChunkManager( const string& ns , bool reload = false );
         
         /**
          * @return the correct for shard for the ns
@@ -90,34 +135,43 @@ namespace mongo {
          */
         const Shard& getShard( const string& ns );
         
-        const Shard& getPrimary(){
+        const Shard& getPrimary() const {
             uassert( 8041 , (string)"no primary shard configured for db: " + _name , _primary.ok() );
             return _primary;
         }
         
-        void setPrimary( string s ){
-            _primary = s;
-        }
+        void setPrimary( string s );
 
+        bool load();
         bool reload();
-
+        
         bool dropDatabase( string& errmsg );
-        
-        virtual void save( bool check=true);
 
-        virtual string modelServer();
-        
         // model stuff
 
-        virtual const char * getNS(){ return "config.databases"; }
-        virtual void serialize(BSONObjBuilder& to);
-        virtual void unserialize(const BSONObj& from);
-        
+        // lockless loading
+        void serialize(BSONObjBuilder& to);
+
+        /**
+         * if i need save in new format
+         */
+        bool unserialize(const BSONObj& from);
+
+        void getAllShards(set<Shard>& shards) const;
+
     protected:
 
-        bool _dropShardedCollections( int& num, set<string>& allServers , string& errmsg );
-        
-        bool doload();
+        /** 
+            lockless
+        */
+        bool _isSharded( const string& ns );
+
+        bool _dropShardedCollections( int& num, set<Shard>& allServers , string& errmsg );
+
+        bool _load();
+        bool _reload();
+        void _save();
+
         
         /**
            @return true if there was sharding info to remove
@@ -128,39 +182,14 @@ namespace mongo {
         Shard _primary; // e.g. localhost , mongo.foo.com:9999
         bool _shardingEnabled;
         
-        map<string,CollectionInfo> _sharded; // { "alleyinsider.blog.posts" : { ts : 1 }  , ... ] - all ns that are sharded
-        map<string,ChunkManager*> _shards; // this will only have entries for things that have been looked at
+        //map<string,CollectionInfo> _sharded; // { "alleyinsider.blog.posts" : { ts : 1 }  , ... ] - all ns that are sharded
+        //map<string,ChunkManagerPtr> _shards; // this will only have entries for things that have been looked at
 
-        friend class Grid;
+        Collections _collections;
+
+        mongo::mutex _lock; // TODO: change to r/w lock ??
+
         friend class ChunkManager;
-    };
-
-    /**
-     * stores meta-information about the grid
-     * TODO: used shard_ptr for DBConfig pointers
-     */
-    class Grid {
-    public:
-        /**
-           gets the config the db.
-           will return an empty DBConfig if not in db already
-         */
-        DBConfig * getDBConfig( string ns , bool create=true);
-        
-        /**
-         * removes db entry.
-         * on next getDBConfig call will fetch from db
-         */
-        void removeDB( string db );
-
-        string pickShardForNewDB();
-        
-        bool knowAboutShard( string name ) const;
-
-        unsigned long long getNextOpTime() const;
-    private:
-        map<string,DBConfig*> _databases;
-        mongo::mutex _lock; // TODO: change to r/w lock
     };
 
     class ConfigServer : public DBConfig {
@@ -168,21 +197,20 @@ namespace mongo {
 
         ConfigServer();
         ~ConfigServer();
-
-        bool ok(){
-            // TODO: check can connect
-            return _primary.ok();
-        }
+        
+        bool ok( bool checkConsistency = false );
         
         virtual string modelServer(){
             uassert( 10190 ,  "ConfigServer not setup" , _primary.ok() );
-            return _primary;
+            return _primary.getConnString();
         }
         
         /**
            call at startup, this will initiate connection to the grid db 
         */
         bool init( vector<string> configHosts );
+        
+        bool init( string s );
 
         bool allUp();
         bool allUp( string& errmsg );
@@ -204,10 +232,22 @@ namespace mongo {
          */
         void logChange( const string& what , const string& ns , const BSONObj& detail = BSONObj() );
 
+        ConnectionString getConnectionString() const {
+            return ConnectionString( _primary.getConnString() , ConnectionString::SYNC );
+        }
+
         static int VERSION;
         
+
+        /**
+         * check to see if all config servers have the same state
+         * will try tries time to make sure not catching in a bad state
+         */
+        bool checkConfigServersConsistent( string& errmsg , int tries = 4 ) const;
+
     private:
         string getHost( string name , bool withPort );
+        vector<string> _config;
     };
-    
+
 } // namespace mongo

@@ -17,7 +17,16 @@
 
 #pragma once
 
+#include <map>
+#include "util/atomic_int.h"
+#include "util/misc.h"
+#include "../util/hex.h"
+
 namespace mongo {
+
+    inline BSONObjIterator BSONObj::begin() { 
+        return BSONObjIterator(*this);
+    }
 
     inline BSONObj BSONElement::embeddedObjectUserCheck() const {
         uassert( 10065 ,  "invalid parameter: expected an object", isABSONObj() );
@@ -49,7 +58,7 @@ namespace mongo {
     }
 
     inline BSONObj BSONElement::wrap( const char * newName ) const {
-        BSONObjBuilder b(size()+6+strlen(newName));
+        BSONObjBuilder b(size()+6+(int)strlen(newName));
         b.appendAs(*this,newName);
         return b.obj();
     }
@@ -67,11 +76,11 @@ namespace mongo {
         return false;
     }
 
-    inline BSONElement BSONObj::getField(const char *name) const {
+    inline BSONElement BSONObj::getField(const StringData& name) const {
         BSONObjIterator i(*this);
         while ( i.more() ) {
             BSONElement e = i.next();
-            if ( strcmp(e.fieldName(), name) == 0 )
+            if ( strcmp(e.fieldName(), name.data()) == 0 )
                 return e;
         }
         return BSONElement();
@@ -116,12 +125,6 @@ namespace mongo {
 
     inline BSONObjBuilder& BSONObjBuilderValueStream::operator<<( const BSONElement& e ) { 
         _builder->appendAs( e , _fieldName );
-        _fieldName = 0;
-        return *_builder;
-    }
-
-    inline BSONObjBuilder& BSONObjBuilderValueStream::operator<<(DateNowLabeler& id){
-        _builder->appendDate(_fieldName, jsTime());
         _fieldName = 0;
         return *_builder;
     }
@@ -173,8 +176,8 @@ namespace mongo {
     }
 
     inline BSONObjIterator BSONObjBuilder::iterator() const {
-        const char * s = b.buf() + offset_;
-        const char * e = b.buf() + b.len();
+        const char * s = _b.buf() + _offset;
+        const char * e = _b.buf() + _b.len();
         return BSONObjIterator( s , e );
     }
     
@@ -209,4 +212,387 @@ namespace mongo {
         return s;
     }
 
+    inline string BSONObj::toString( bool isArray, bool full ) const {
+        if ( isEmpty() ) return "{}";
+        StringBuilder s;
+        toString(s, isArray, full);
+        return s.str();
+    }
+    inline void BSONObj::toString(StringBuilder& s,  bool isArray, bool full ) const {
+        if ( isEmpty() ){
+            s << "{}";
+            return;
+        }
+
+        s << ( isArray ? "[ " : "{ " );
+        BSONObjIterator i(*this);
+        bool first = true;
+        while ( 1 ) {
+            massert( 10327 ,  "Object does not end with EOO", i.moreWithEOO() );
+            BSONElement e = i.next( true );
+            massert( 10328 ,  "Invalid element size", e.size() > 0 );
+            massert( 10329 ,  "Element too large", e.size() < ( 1 << 30 ) );
+            int offset = (int) (e.rawdata() - this->objdata());
+            massert( 10330 ,  "Element extends past end of object",
+                    e.size() + offset <= this->objsize() );
+            e.validate();
+            bool end = ( e.size() + offset == this->objsize() );
+            if ( e.eoo() ) {
+                massert( 10331 ,  "EOO Before end of object", end );
+                break;
+            }
+            if ( first )
+                first = false;
+            else
+                s << ", ";
+            e.toString(s, !isArray, full );
+        }
+        s << ( isArray ? " ]" : " }" );
+    }
+
+    extern unsigned getRandomNumber();
+
+    inline void BSONElement::validate() const {
+        const BSONType t = type();
+        
+        switch( t ) {
+        case DBRef:
+        case Code:
+        case Symbol:
+        case mongo::String: {
+            int x = valuestrsize();
+            if ( x > 0 && x < BSONObjMaxSize && valuestr()[x-1] == 0 )
+                return;
+            StringBuilder buf;
+            buf <<  "Invalid dbref/code/string/symbol size: " << x << " strnlen:" << mongo::strnlen( valuestr() , x );
+            msgasserted( 10321 , buf.str() );
+            break;
+        }
+        case CodeWScope: {
+            int totalSize = readLE<int>( value() );
+            massert( 10322 ,  "Invalid CodeWScope size", totalSize >= 8 );
+            int strSizeWNull = readLE<int>( value() + 4 );
+            massert( 10323 ,  "Invalid CodeWScope string size", totalSize >= strSizeWNull + 4 + 4 );
+            massert( 10324 ,  "Invalid CodeWScope string size",
+                     strSizeWNull > 0 &&
+                     (strSizeWNull - 1) == mongo::strnlen( codeWScopeCode(), strSizeWNull ) );
+            massert( 10325 ,  "Invalid CodeWScope size", totalSize >= strSizeWNull + 4 + 4 + 4 );
+            int objSize = readLE<int>( value() + 4 + 4 + strSizeWNull );
+            massert( 10326 ,  "Invalid CodeWScope object size", totalSize == 4 + 4 + strSizeWNull + objSize );
+            // Subobject validation handled elsewhere.
+        }
+        case Object:
+            // We expect Object size validation to be handled elsewhere.
+        default:
+            break;
+        }
+    }
+
+    inline int BSONElement::size( int maxLen ) const {
+        if ( totalSize >= 0 )
+            return totalSize;
+
+        int remain = maxLen - fieldNameSize() - 1;
+
+        int x = 0;
+        switch ( type() ) {
+        case EOO:
+        case Undefined:
+        case jstNULL:
+        case MaxKey:
+        case MinKey:
+            break;
+        case mongo::Bool:
+            x = 1;
+            break;
+        case NumberInt:
+            x = 4;
+            break;
+        case Timestamp:
+        case mongo::Date:
+        case NumberDouble:
+        case NumberLong:
+            x = 8;
+            break;
+        case jstOID:
+            x = 12;
+            break;
+        case Symbol:
+        case Code:
+        case mongo::String:
+            massert( 10313 ,  "Insufficient bytes to calculate element size", maxLen == -1 || remain > 3 );
+            x = valuestrsize() + 4;
+            break;
+        case CodeWScope:
+            massert( 10314 ,  "Insufficient bytes to calculate element size", maxLen == -1 || remain > 3 );
+            x = objsize();
+            break;
+
+        case DBRef:
+            massert( 10315 ,  "Insufficient bytes to calculate element size", maxLen == -1 || remain > 3 );
+            x = valuestrsize() + 4 + 12;
+            break;
+        case Object:
+        case mongo::Array:
+            massert( 10316 ,  "Insufficient bytes to calculate element size", maxLen == -1 || remain > 3 );
+            x = objsize();
+            break;
+        case BinData:
+            massert( 10317 ,  "Insufficient bytes to calculate element size", maxLen == -1 || remain > 3 );
+            x = valuestrsize() + 4 + 1/*subtype*/;
+            break;
+        case RegEx:
+        {
+            const char *p = value();
+            size_t len1 = ( maxLen == -1 ) ? strlen( p ) : mongo::strnlen( p, remain );
+            //massert( 10318 ,  "Invalid regex string", len1 != -1 ); // ERH - 4/28/10 - don't think this does anything
+            p = p + len1 + 1;
+            size_t len2;
+            if( maxLen == -1 )
+                len2 = strlen( p );
+            else {
+                size_t x = remain - len1 - 1;
+                assert( x <= 0x7fffffff );
+                len2 = mongo::strnlen( p, (int) x );
+            }
+            //massert( 10319 ,  "Invalid regex options string", len2 != -1 ); // ERH - 4/28/10 - don't think this does anything
+            x = (int) (len1 + 1 + len2 + 1);
+        }
+        break;
+        default: {
+            StringBuilder ss;
+            ss << "BSONElement: bad type " << (int) type();
+            string msg = ss.str();
+            massert( 10320 , msg.c_str(),false);
+        }
+        }
+        totalSize =  x + fieldNameSize() + 1; // BSONType
+
+        return totalSize;
+    }
+
+    inline string BSONElement::toString( bool includeFieldName, bool full ) const {
+        StringBuilder s;
+        toString(s, includeFieldName, full);
+        return s.str();
+    }
+    inline void BSONElement::toString(StringBuilder& s, bool includeFieldName, bool full ) const {
+        if ( includeFieldName && type() != EOO )
+            s << fieldName() << ": ";
+        switch ( type() ) {
+        case EOO:
+            s << "EOO";
+            break;
+        case mongo::Date:
+            s << "new Date(" << date() << ')';
+            break;
+        case RegEx:
+            {
+                s << "/" << regex() << '/';
+                const char *p = regexFlags();
+                if ( p ) s << p;
+            }
+            break;
+        case NumberDouble:
+            s.appendDoubleNice( number() );
+            break;
+        case NumberLong:
+            s << _numberLong();
+            break;
+        case NumberInt:
+            s << _numberInt();
+            break;
+        case mongo::Bool:
+            s << ( boolean() ? "true" : "false" );
+            break;
+        case Object:
+            embeddedObject().toString(s, false, full);
+            break;
+        case mongo::Array:
+            embeddedObject().toString(s, true, full);
+            break;
+        case Undefined:
+            s << "undefined";
+            break;
+        case jstNULL:
+            s << "null";
+            break;
+        case MaxKey:
+            s << "MaxKey";
+            break;
+        case MinKey:
+            s << "MinKey";
+            break;
+        case CodeWScope:
+            s << "CodeWScope( "
+                << codeWScopeCode() << ", " << codeWScopeObject().toString(false, full) << ")";
+            break;
+        case Code:
+            if ( !full &&  valuestrsize() > 80 ) {
+                s.write(valuestr(), 70);
+                s << "...";
+            } else {
+                s.write(valuestr(), valuestrsize()-1);
+            }
+            break;
+        case Symbol:
+        case mongo::String:
+            s << '"';
+            if ( !full &&  valuestrsize() > 80 ) {
+                s.write(valuestr(), 70);
+                s << "...\"";
+            } else {
+                s.write(valuestr(), valuestrsize()-1);
+                s << '"';
+            }
+            break;
+        case DBRef:
+            s << "DBRef('" << valuestr() << "',";
+            {
+                mongo::OID *x = (mongo::OID *) (valuestr() + valuestrsize());
+                s << *x << ')';
+            }
+            break;
+        case jstOID:
+            s << "ObjectId('";
+            s << __oid() << "')";
+            break;
+        case BinData:
+            s << "BinData";
+            if (full){
+                int len;
+                const char* data = binDataClean(len);
+                s << '(' << binDataType() << ", " << toHex(data, len) << ')';
+            }
+            break;
+        case Timestamp:
+            s << "Timestamp " << timestampTime() << "|" << timestampInc();
+            break;
+        default:
+            s << "?type=" << type();
+            break;
+        }
+    }
+
+    /* return has eoo() true if no match
+       supports "." notation to reach into embedded objects
+    */
+    inline BSONElement BSONObj::getFieldDotted(const char *name) const {
+        BSONElement e = getField( name );
+        if ( e.eoo() ) {
+            const char *p = strchr(name, '.');
+            if ( p ) {
+                string left(name, p-name);
+                BSONObj sub = getObjectField(left.c_str());
+                return sub.isEmpty() ? BSONElement() : sub.getFieldDotted(p+1);
+            }
+        }
+
+        return e;
+    }
+
+    inline BSONObj BSONObj::getObjectField(const char *name) const {
+        BSONElement e = getField(name);
+        BSONType t = e.type();
+        return t == Object || t == Array ? e.embeddedObject() : BSONObj();
+    }
+
+    inline int BSONObj::nFields() const {
+        int n = 0;
+        BSONObjIterator i(*this);
+        while ( i.moreWithEOO() ) {
+            BSONElement e = i.next();
+            if ( e.eoo() )
+                break;
+            n++;
+        }
+        return n;
+    }
+
+    inline BSONObj::BSONObj() {
+        /* little endian ordering here, but perhaps that is ok regardless as BSON is spec'd 
+           to be little endian external to the system. (i.e. the rest of the implementation of bson, 
+           not this part, fails to support big endian)
+        */
+        static char p[] = { /*size*/5, 0, 0, 0, /*eoo*/0 };
+        _objdata = p;
+    }
+
+    inline BSONObj BSONElement::Obj() const { return embeddedObjectUserCheck(); }
+
+    inline BSONElement BSONElement::operator[] (const string& field) const { 
+        BSONObj o = Obj();
+        return o[field];
+    }
+
+    inline void BSONObj::elems(vector<BSONElement> &v) const {
+        BSONObjIterator i(*this);
+        while( i.more() )
+            v.push_back(i.next());
+    }
+
+    inline void BSONObj::elems(list<BSONElement> &v) const { 
+        BSONObjIterator i(*this);
+        while( i.more() )
+            v.push_back(i.next());
+    }
+
+    template <class T>
+    void BSONObj::Vals(vector<T>& v) const { 
+        BSONObjIterator i(*this);
+        while( i.more() ) {
+            T t;
+            i.next().Val(t);
+            v.push_back(t);
+        }
+    }
+    template <class T>
+    void BSONObj::Vals(list<T>& v) const { 
+        BSONObjIterator i(*this);
+        while( i.more() ) {
+            T t;
+            i.next().Val(t);
+            v.push_back(t);
+        }
+    }
+
+    template <class T>
+    void BSONObj::vals(vector<T>& v) const { 
+        BSONObjIterator i(*this);
+        while( i.more() ) {
+            try {
+                T t;
+                i.next().Val(t);
+                v.push_back(t);
+            } catch(...) { }
+        }
+    }
+    template <class T>
+    void BSONObj::vals(list<T>& v) const { 
+        BSONObjIterator i(*this);
+        while( i.more() ) {
+            try {
+                T t;
+                i.next().Val(t);
+                v.push_back(t);
+            } catch(...) { }
+        }
+    }
+
+    inline ostream& operator<<( ostream &s, const BSONObj &o ) {
+        return s << o.toString();
+    }
+
+    inline ostream& operator<<( ostream &s, const BSONElement &e ) {
+        return s << e.toString();
+    }
+
+    inline void BSONElement::Val(BSONObj& v) const { v = Obj(); }
+
+    template<typename T>
+    inline BSONFieldValue<BSONObj> BSONField<T>::query( const char * q , const T& t ) const {
+        BSONObjBuilder b;
+        b.append( q , t );
+        return BSONFieldValue<BSONObj>( _name , b.obj() );
+    }
 }

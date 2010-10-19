@@ -35,8 +35,14 @@ namespace mongo {
 
     class Tool {
     public:
-        Tool( string name , bool localDBAllowed=true, string defaultDB="test" , 
-              string defaultCollection="", bool usesstdout=true );
+        enum DBAccess{
+            NONE,
+            ALL,
+            NO_LOCAL
+        };
+
+        Tool( string name , DBAccess access=ALL, string defaultDB="test" , 
+              string defaultCollection="", bool usesstdout=true);
         virtual ~Tool();
 
         int main( int argc , char ** argv );
@@ -79,7 +85,8 @@ namespace mongo {
 
         virtual void printHelp(ostream &out);
 
-        virtual void printExtraHelp( ostream & out );
+        virtual void printExtraHelp( ostream & out ){}
+        virtual void printExtraHelpAfter( ostream & out ){}
 
     protected:
 
@@ -96,6 +103,7 @@ namespace mongo {
         
         bool _usesstdout;
         bool _noconnection;
+        bool _autoreconnect;
 
         void addFieldOptions();
         void needFields();
@@ -117,6 +125,22 @@ namespace mongo {
 
         boost::program_options::variables_map _params;
 
+    };
+
+    class BSONTool : public Tool {
+        bool _objcheck;
+        auto_ptr<Matcher> _matcher;
+        
+    public:
+        BSONTool( const char * name , DBAccess access=ALL, bool objcheck = false );
+        
+        virtual int doRun() = 0;
+        virtual void gotObject( const BSONObj& obj ) = 0;
+        
+        virtual int run();
+
+        long long processFile( const path& file );
+        
     };
 
 }

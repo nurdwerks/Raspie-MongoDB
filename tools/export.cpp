@@ -16,7 +16,7 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "client/dbclient.h"
 #include "db/json.h"
 
@@ -34,11 +34,12 @@ namespace po = boost::program_options;
 class Export : public Tool {
 public:
     Export() : Tool( "export" ){
+        addFieldOptions();
         add_options()
             ("query,q" , po::value<string>() , "query filter, as a JSON string" )
-            ("fields,f" , po::value<string>() , "comma seperated list of field names e.g. -f name,age" )
             ("csv","export to csv instead of json")
             ("out,o", po::value<string>(), "output file; if not specified, stdout is used")
+            ("jsonArray", "output to a json array rather than one object per line")
             ;
         _usesstdout = false;
     }
@@ -46,6 +47,7 @@ public:
     int run(){
         string ns;
         const bool csv = hasParam( "csv" );
+        const bool jsonArray = hasParam( "jsonArray" );
         ostream *outPtr = &cout;
         string outfile = getParam( "out" );
         auto_ptr<ofstream> fileStream;
@@ -77,7 +79,7 @@ public:
 
         auth();
 
-        if ( hasParam( "fields" ) ){
+        if ( hasParam( "fields" ) || csv ){
             needFields();
             fieldsToReturn = &_fieldsObj;
         }
@@ -88,8 +90,11 @@ public:
             return -1;
         }
 
+        Query q( getParam( "query" , "" ) );
+        if ( q.getFilter().isEmpty() && !hasParam("dbpath"))
+            q.snapshot();
 
-        auto_ptr<DBClientCursor> cursor = conn().query( ns.c_str() , ((Query)(getParam( "query" , "" ))).snapshot() , 0 , 0 , fieldsToReturn , QueryOption_SlaveOk | QueryOption_NoCursorTimeout );
+        auto_ptr<DBClientCursor> cursor = conn().query( ns.c_str() , q , 0 , 0 , fieldsToReturn , QueryOption_SlaveOk | QueryOption_NoCursorTimeout );
 
         if ( csv ){
             for ( vector<string>::iterator i=_fields.begin(); i != _fields.end(); i++ ){
@@ -100,6 +105,9 @@ public:
             out << endl;
         }
         
+        if (jsonArray)
+            out << '[';
+
         long long num = 0;
         while ( cursor->more() ) {
             num++;
@@ -116,10 +124,18 @@ public:
                 out << endl;
             }
             else {
-                out << obj.jsonString() << endl;
+                if (jsonArray && num != 1)
+                    out << ',';
+
+                out << obj.jsonString();
+
+                if (!jsonArray)
+                    out << endl;
             }
         }
 
+        if (jsonArray)
+            out << ']' << endl;
         
         cerr << "exported " << num << " records" << endl;
 

@@ -19,46 +19,63 @@
 
 #include "sock.h"
 #include "../db/cmdline.h"
-
+#include "mongoutils/str.h"
+ 
 namespace mongo { 
+
+    using namespace mongoutils;
 
     /** helper for manipulating host:port connection endpoints. 
       */
     struct HostAndPort { 
         HostAndPort() : _port(-1) { }
 
-        HostAndPort(string h, int p = -1) : _host(h), _port(p) { }
+        /** From a string hostname[:portnumber] 
+            Throws user assertion if bad config string or bad port #.
+            */
+        HostAndPort(string s);
+
+        /** @param p port number. -1 is ok to use default. */
+        HostAndPort(string h, int p /*= -1*/) : _host(h), _port(p) { }
+
+        HostAndPort(const SockAddr& sock ) 
+            : _host( sock.getAddr() ) , _port( sock.getPort() ){
+        }
 
         static HostAndPort me() { 
             return HostAndPort("localhost", cmdLine.port);
         }
 
-        static HostAndPort fromString(string s) {
-            const char *p = s.c_str();
-            uassert(13110, "HostAndPort: bad config string", *p);
-            const char *colon = strchr(p, ':');
-            HostAndPort m;
-            if( colon ) {
-                int port = atoi(colon+1);
-                uassert(13095, "HostAndPort: bad port #", port > 0);
-                return HostAndPort(string(p,colon-p),port);
-            }
-            // no port specified.
-            return HostAndPort(p, cmdLine.port);
+        /* uses real hostname instead of localhost */
+        static HostAndPort Me();
+
+        bool operator<(const HostAndPort& r) const {
+            if( _host < r._host ) 
+                return true;
+            if( _host == r._host )
+                return port() < r.port();
+            return false;
         }
 
-        bool operator<(const HostAndPort& r) const { return _host < r._host || (_host==r._host&&_port<r._port); }
+        bool operator==(const HostAndPort& r) const {
+            return _host == r._host && port() == r.port();
+        }
 
         /* returns true if the host/port combo identifies this process instance. */
-        bool isSelf() const;
+        bool isSelf() const; // defined in message.cpp
 
         bool isLocalHost() const;
 
         // @returns host:port
         string toString() const; 
 
+        operator string() const { return toString(); }
+
         string host() const { return _host; }
-        int port() const { return _port; }
+
+        int port() const { return _port >= 0 ? _port : CmdLine::DefaultDBPort; }
+        bool hasPort() const { return _port >= 0; }
+        void setPort( int port ) { _port = port; }
 
     private:
         // invariant (except full obj assignment):
@@ -66,35 +83,77 @@ namespace mongo {
         int _port; // -1 indicates unspecified
     };
 
-    /** returns true if strings share a common starting prefix */
-    inline bool sameStart(const char *p, const char *q) {
-        while( 1 ) {
-            if( *p == 0 || *q == 0 )
-                return true;
-            if( *p != *q )
-                break;
-            p++; q++;
-        }
-        return false;
+    /** returns true if strings seem to be the same hostname.
+        "nyc1" and "nyc1.acme.com" are treated as the same.
+        in fact "nyc1.foo.com" and "nyc1.acme.com" are treated the same - 
+        we oly look up to the first period.
+    */
+    inline bool sameHostname(const string& a, const string& b) {
+        return str::before(a, '.') == str::before(b, '.');
     }
 
-    inline bool HostAndPort::isSelf() const { 
-        int p = _port == -1 ? CmdLine::DefaultDBPort : _port;
-        if( p != cmdLine.port )
-            return false;
-        assert( _host != "localhost" && _host != "127.0.0.1" );
-        return sameStart(getHostName().c_str(), _host.c_str());
+    inline HostAndPort HostAndPort::Me() { 
+        const char* ips = cmdLine.bind_ip.c_str();
+        while(*ips){
+            string ip;
+            const char * comma = strchr(ips, ',');
+            if (comma){
+                ip = string(ips, comma - ips);
+                ips = comma + 1;
+            }else{
+                ip = string(ips);
+                ips = "";
+            }
+            HostAndPort h = HostAndPort(ip, cmdLine.port);
+            if (!h.isLocalHost()) {
+                return h;
+            }
+        }
+            
+        string h = getHostName();
+        assert( !h.empty() );
+        assert( h != "localhost" );
+        return HostAndPort(h, cmdLine.port);
     }
 
     inline string HostAndPort::toString() const {
         stringstream ss;
         ss << _host;
-        if( _port != -1 ) ss << ':' << _port;
+        if ( _port != -1 ){
+            ss << ':';
+#if defined(_DEBUG)
+            if( _port >= 44000 && _port < 44100 ) { 
+                log() << "warning: special debug port 44xxx used" << endl;
+                ss << _port+1;
+            }
+            else
+                ss << _port;
+#else
+            ss << _port;
+#endif
+        }
         return ss.str();
     }
 
     inline bool HostAndPort::isLocalHost() const { 
-        return _host == "localhost" || _host == "127.0.0.1";
+        return _host == "localhost" || startsWith(_host.c_str(), "127.") || _host == "::1";
+    }
+
+    inline HostAndPort::HostAndPort(string s) {
+        const char *p = s.c_str();
+        uassert(13110, "HostAndPort: bad config string", *p);
+        const char *colon = strrchr(p, ':');
+        if( colon ) {
+            int port = atoi(colon+1);
+            uassert(13095, "HostAndPort: bad port #", port > 0);
+            _host = string(p,colon-p);
+            _port = port;
+        }
+        else {
+            // no port specified.
+            _host = p;
+            _port = -1;
+        }
     }
 
 }

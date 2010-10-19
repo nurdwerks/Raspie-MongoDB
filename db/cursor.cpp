@@ -14,7 +14,7 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "pdfile.h"
 #include "curop.h"
 
@@ -24,7 +24,7 @@ namespace mongo {
         killCurrentOp.checkForInterrupt();
         if ( eof() ) {
             if ( tailable_ && !last.isNull() ) {
-                curr = s->next( last );                    
+                curr = s->next( last );       
             } else {
                 return false;
             }
@@ -32,6 +32,7 @@ namespace mongo {
             last = curr;
             curr = s->next( curr );
         }
+        incNscanned();
         return ok();
     }
 
@@ -89,6 +90,7 @@ namespace mongo {
         }
         curr = start;
         s = this;
+        incNscanned();
     }
 
     DiskLoc ForwardCappedCursor::next( const DiskLoc &prev ) const {
@@ -125,6 +127,7 @@ namespace mongo {
         }
         curr = start;
         s = this;
+        incNscanned();
     }
 
     DiskLoc ReverseCappedCursor::next( const DiskLoc &prev ) const {

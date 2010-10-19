@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include "../util/hex.h"
+
 namespace mongo {
 
 #pragma pack(1)
-    
     /**	Object ID type.
         BSON objects typically have an _id field for the object id.  This field should be the first 
         member of the object when present.  class OID is a special type that is a 12 byte id which 
@@ -57,35 +58,16 @@ namespace mongo {
 
         /** The object ID output as 24 hex digits. */
         string str() const {
-            stringstream s;
-            s << hex;
-            //            s.fill( '0' );
-            //            s.width( 2 );
-            // fill wasn't working so doing manually...
-            for( int i = 0; i < 8; i++ ) {
-                unsigned u = data[i];
-                if( u < 16 ) s << '0';
-                s << u;
-            }
-            const unsigned char * raw = (const unsigned char*)&b;
-            for( int i = 0; i < 4; i++ ) {
-                unsigned u = raw[i];
-                if( u < 16 ) s << '0';
-                s << u;
-            }
-            /*
-              s.width( 16 );
-              s << a;
-              s.width( 8 );
-              s << b;
-              s << dec;
-            */
-            return s.str();
+            return toHexLower(data, 12);
         }
+
+        string toString() const { return str(); }
+
+        static OID gen() { OID o; o.init(); return o; }
         
-        /**
-           sets the contents to a new oid / randomized value
-        */
+        static unsigned staticMachine(){ return _machine; }
+
+        /** sets the contents to a new oid / randomized value */
         void init();
 
         /** Set to the hex string value specified. */
@@ -97,8 +79,16 @@ namespace mongo {
         time_t asTimeT();
         Date_t asDateT() { return asTimeT() * (long long)1000; }
         
+        bool isSet() const { return a || b; }
+        
+        int compare( const OID& other ) const { return memcmp( data , other.data , 12 ); }
+        
+        bool operator<( const OID& other ) const { return compare( other ) < 0; }
     };
+#pragma pack()
+
     ostream& operator<<( ostream &s, const OID &o );
+    inline StringBuilder& operator<< (StringBuilder& s, const OID& o) { return (s << o.str()); }
 
     /** Formatting mode for generating JSON from BSON.
         See <http://mongodb.onconfluence.com/display/DOCS/Mongo+Extended+JSON>
@@ -114,9 +104,9 @@ namespace mongo {
         JS
     };
 
-    /* l and r MUST have same type when called: check that first. */
-    int compareElementValues(const BSONElement& l, const BSONElement& r);
-
-#pragma pack()
+    inline ostream& operator<<( ostream &s, const OID &o ) {
+        s << o.str();
+        return s;
+    }
 
 }

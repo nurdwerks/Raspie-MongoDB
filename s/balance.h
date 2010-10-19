@@ -18,23 +18,62 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "../util/background.h"
 #include "../client/dbclient.h"
+#include "balancer_policy.h"
 
 namespace mongo {
     
     class Balancer : public BackgroundJob {
     public:
         Balancer();
-        
-        void run();
+        virtual ~Balancer();
+
+        // BackgroundJob methods
+
+        virtual void run();
+
+        virtual string name() { return "Balancer"; }        
 
     private:
-        bool shouldIBalance( DBClientBase& conn );
-        
-        string _myid;
-        time_t _started;
+        typedef BalancerPolicy::ChunkInfo CandidateChunk;
+        typedef shared_ptr<CandidateChunk> CandidateChunkPtr;
+
+        /**
+         * Gathers all the necessary information about shards and chunks, and 
+         * decides whether there are candidate chunks to be moved.
+         */
+        void _doBalanceRound( DBClientBase& conn, vector<CandidateChunkPtr>* candidateChunks );
+
+        /**
+         * Execute the chunk migrations described in 'candidateChunks' and
+         * returns the number of chunks effectively moved.
+         */
+        int _moveChunks( const vector<CandidateChunkPtr>* candidateChunks );
+
+        /**
+         * Check the health of the master configuration server
+         */
+        void _ping();
+        void _ping( DBClientBase& conn );
+
+        /**
+         * @return true if everything is ok
+         */
+        bool _checkOIDs();
+
+        // internal state
+
+        string          _myid;             // hostname:port of my mongos
+        time_t          _started;          // time Balancer starte running
+        int             _balancedLastTime; // number of moved chunks in last round
+        BalancerPolicy* _policy;           // decide which chunks to move; owned here.
+
+        // non-copyable, non-assignable
+
+        Balancer(const Balancer&);
+        Balancer operator=(const Balancer&);
     };
     
     extern Balancer balancer;

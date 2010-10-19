@@ -34,7 +34,8 @@ Mongo.prototype.getDB = function( name ){
 
 Mongo.prototype.getDBs = function(){
     var res = this.getDB( "admin" ).runCommand( { "listDatabases" : 1 } );
-    assert( res.ok == 1 , "listDatabases failed:" + tojson( res ) );
+    if ( ! res.ok )
+        throw "listDatabases failed:" + tojson( res );
     return res;
 }
 
@@ -56,8 +57,9 @@ Mongo.prototype.getCollection = function(ns){
 }
 
 Mongo.prototype.toString = function(){
-    return "mongo connection to " + this.host;
+    return "connection to " + this.host;
 }
+Mongo.prototype.tojson = Mongo.prototype.toString;
 
 connect = function( url , user , pass ){
     chatty( "connecting to: " + url )

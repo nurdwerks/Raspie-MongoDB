@@ -29,13 +29,11 @@
 
 #pragma once
 
-#include "../util/locks.h"
+#include "../util/concurrency/rwlock.h"
+#include "../util/mmap.h"
+#include "../util/time_support.h"
 
 namespace mongo {
-
-    inline bool readLockSupported(){
-        return true;
-    }
 
     string sayClientState();
     bool haveClient();
@@ -86,13 +84,16 @@ namespace mongo {
         */
         ThreadLocalValue<bool> _releasedEarly;
     public:
+        MongoMutex(const char * name) : _m(name) { }
+
         /**
          * @return
          *    > 0  write lock
          *    = 0  no lock
          *    < 0  read lock
          */
-        int getState(){ return _state.get(); }
+        int getState() { return _state.get(); }
+        bool isWriteLocked() { return getState() > 0; }
         void assertWriteLocked() { 
             assert( getState() > 0 ); 
             DEV assert( !_releasedEarly.get() );
@@ -100,16 +101,25 @@ namespace mongo {
         bool atLeastReadLocked() { return _state.get() != 0; }
         void assertAtLeastReadLocked() { assert(atLeastReadLocked()); }
 
-        void lock() { 
+        bool _checkWriteLockAlready(){
             //DEV cout << "LOCK" << endl;
             DEV assert( haveClient() );
                 
             int s = _state.get();
             if( s > 0 ) {
                 _state.set(s+1);
-                return;
+                return true;
             }
+
             massert( 10293 , (string)"internal error: locks are not upgradeable: " + sayClientState() , s == 0 );
+
+            return false;
+        }
+
+        void lock() { 
+            if ( _checkWriteLockAlready() )
+                return;
+            
             _state.set(1);
 
             curopWaitingForLock( 1 );
@@ -117,7 +127,28 @@ namespace mongo {
             curopGotLock();
 
             _minfo.entered();
+
+            MongoFile::lockAll();
         }
+
+        bool lock_try( int millis ) { 
+            if ( _checkWriteLockAlready() )
+                return true;
+
+            curopWaitingForLock( 1 );
+            bool got = _m.lock_try( millis ); 
+            curopGotLock();
+            
+            if ( got ){
+                _minfo.entered();
+                _state.set(1);
+                MongoFile::lockAll();
+            }                
+            
+            return got;
+        }
+
+
         void unlock() { 
             //DEV cout << "UNLOCK" << endl;
             int s = _state.get();
@@ -132,6 +163,9 @@ namespace mongo {
                 }
                 massert( 12599, "internal error: attempt to unlock when wasn't in a write lock", false);
             }
+
+            MongoFile::unlockAll();
+
             _state.set(0);
             _minfo.leaving();
             _m.unlock(); 
@@ -204,8 +238,8 @@ namespace mongo {
 
     extern MongoMutex &dbMutex;
 
-	void dbunlocking_write();
-	void dbunlocking_read();
+    inline void dbunlocking_write() { }
+    inline void dbunlocking_read() { }
 
     struct writelock {
         writelock(const string& ns) {
@@ -241,12 +275,36 @@ namespace mongo {
                 dbMutex.unlock_shared();
             }
         }
-        bool got(){
-            return _got;
-        }
+        bool got() const { return _got; }
+    private:
         bool _got;
     };
-    
+
+    struct writelocktry {
+        writelocktry( const string&ns , int tryms ){
+            _got = dbMutex.lock_try( tryms );
+        }
+        ~writelocktry() {
+            if ( _got ){
+                dbunlocking_read();
+                dbMutex.unlock();
+            }
+        }
+        bool got() const { return _got; }
+    private:
+        bool _got;
+    };
+
+    struct readlocktryassert : public readlocktry { 
+        readlocktryassert(const string& ns, int tryms) : 
+          readlocktry(ns,tryms) { 
+              uassert(13142, "timeout getting readlock", got());
+        }
+    };
+
+    /** assure we have at least a read lock - they key with this being
+        if you have a write lock, that's ok too.
+    */
     struct atleastreadlock {
         atleastreadlock( const string& ns ){
             _prev = dbMutex.getState();
@@ -257,7 +315,7 @@ namespace mongo {
             if ( _prev == 0 )
                 dbMutex.unlock_shared();
         }
-
+    private:
         int _prev;
     };
 
@@ -286,11 +344,9 @@ namespace mongo {
         void releaseAndWriteLock();
     };
     
-	/* use writelock and readlock instead */
+    /* use writelock and readlock instead */
     struct dblock : public writelock {
         dblock() : writelock("") { }
-        ~dblock() { 
-        }
     };
 
     // eliminate

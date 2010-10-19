@@ -16,9 +16,8 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "../util/message.h"
-#include "boost/version.hpp"
 #include "concurrency.h"
 #include "pdfile.h"
 #include "client.h"
@@ -49,8 +48,7 @@ namespace mongo {
         typedef map<string,Database*> DBs;
         typedef map<string,DBs> Paths;
 
-        DatabaseHolder() : _size(0){
-        }
+        DatabaseHolder() : _size(0) { }
 
         bool isLoaded( const string& ns , const string& path ) const {
             dbMutex.assertAtLeastReadLocked();
@@ -64,7 +62,6 @@ namespace mongo {
             DBs::const_iterator it = m.find(db);
             return it != m.end();
         }
-
         
         Database * get( const string& ns , const string& path ) const {
             dbMutex.assertAtLeastReadLocked();
@@ -90,26 +87,7 @@ namespace mongo {
             d = db;
         }
         
-        Database* getOrCreate( const string& ns , const string& path , bool& justCreated ){
-            dbMutex.assertWriteLocked();
-            DBs& m = _paths[path];
-            
-            string dbname = _todb( ns );
-
-            Database* & db = m[dbname];
-            if ( db ){
-                justCreated = false;
-                return db;
-            }
-            
-            log(1) << "Accessing: " << dbname << " for the first time" << endl;
-            db = new Database( dbname.c_str() , justCreated , path );
-            _size++;
-            return db;
-        }
-        
-
-
+        Database* getOrCreate( const string& ns , const string& path , bool& justCreated );
 
         void erase( const string& ns , const string& path ){
             dbMutex.assertWriteLocked();
@@ -123,7 +101,17 @@ namespace mongo {
         int size(){
             return _size;
         }
-        
+                
+        void forEach(boost::function<void(Database *)> f) const {
+            dbMutex.assertAtLeastReadLocked();
+            for ( Paths::const_iterator i=_paths.begin(); i!=_paths.end(); i++ ){
+                DBs m = i->second;
+                for( DBs::const_iterator j=m.begin(); j!=m.end(); j++ ){
+                    f(j->second);
+                }
+            }
+        }         
+
         /**
          * gets all unique db names, ignoring paths
          */
@@ -140,6 +128,12 @@ namespace mongo {
     private:
         
         string _todb( const string& ns ) const {
+            string d = __todb( ns );
+            uassert( 13280 , (string)"invalid db name: " + ns , Database::validDBName( d ) );            
+            return d;
+        }
+
+        string __todb( const string& ns ) const {
             size_t i = ns.find( '.' );
             if ( i == string::npos ){
                 uassert( 13074 , "db name can't be empty" , ns.size() );
@@ -156,10 +150,6 @@ namespace mongo {
 
     extern DatabaseHolder dbHolder;
 
-    // shared functionality for removing references to a database from this program instance
-    // does not delete the files on disk
-    void closeDatabase( const char *cl, const string& path = dbpath );
-    
     struct dbtemprelease {
         Client::Context * _context;
         int _locktype;
@@ -190,7 +180,7 @@ namespace mongo {
             if ( _context ) _context->relocked();
         }
     };
-
+    
 
     /**
        only does a temp release if we're not nested and have a lock
@@ -213,6 +203,9 @@ namespace mongo {
             }
         }
         
+        bool unlocked(){
+            return real > 0;
+        }
     };
 
 } // namespace mongo

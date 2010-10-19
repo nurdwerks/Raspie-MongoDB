@@ -80,7 +80,7 @@ namespace mongo {
        Example:
          cout << BSON( GENOID << "z" << 3 ); // { _id : ..., z : 3 }
     */
-    extern struct IDLabeler { } GENOID;
+    extern struct GENOIDLabeler { } GENOID;
 
     /* Utility class to add a Date element with the current time
        Example: 
@@ -116,6 +116,16 @@ namespace mongo {
     extern Labeler::Label LTE;
     extern Labeler::Label NE;
     extern Labeler::Label SIZE;
+
+
+    // $or helper: OR(BSON("x" << GT << 7), BSON("y" << LT << 6));
+    // becomes   : {$or: [{x: {$gt: 7}}, {y: {$lt: 6}}]}
+    inline BSONObj OR(const BSONObj& a, const BSONObj& b);
+    inline BSONObj OR(const BSONObj& a, const BSONObj& b, const BSONObj& c);
+    inline BSONObj OR(const BSONObj& a, const BSONObj& b, const BSONObj& c, const BSONObj& d);
+    inline BSONObj OR(const BSONObj& a, const BSONObj& b, const BSONObj& c, const BSONObj& d, const BSONObj& e);
+    inline BSONObj OR(const BSONObj& a, const BSONObj& b, const BSONObj& c, const BSONObj& d, const BSONObj& e, const BSONObj& f);
+    // definitions in bsonobjbuilder.h b/c of incomplete types
     
     // Utility class to implement BSON( key << val ) as described above.
     class BSONObjBuilderValueStream : public boost::noncopyable {
@@ -149,11 +159,9 @@ namespace mongo {
      */
     class BSONSizeTracker {
     public:
-#define BSONSizeTrackerSize 10
-
         BSONSizeTracker(){
             _pos = 0;
-            for ( int i=0; i<BSONSizeTrackerSize; i++ )
+            for ( int i=0; i<SIZE; i++ )
                 _sizes[i] = 512; // this is the default, so just be consistent
         }
         
@@ -162,7 +170,7 @@ namespace mongo {
         
         void got( int size ){
             _sizes[_pos++] = size;
-            if ( _pos >= BSONSizeTrackerSize )
+            if ( _pos >= SIZE )
                 _pos = 0;
         }
         
@@ -171,7 +179,7 @@ namespace mongo {
          */
         int getSize() const {
             int x = 16; // sane min
-            for ( int i=0; i<BSONSizeTrackerSize; i++ ){
+            for ( int i=0; i<SIZE; i++ ){
                 if ( _sizes[i] > x )
                     x = _sizes[i];
             }
@@ -179,8 +187,9 @@ namespace mongo {
         }
         
     private:
+        enum { SIZE = 10 };
         int _pos;
-        int _sizes[BSONSizeTrackerSize];
+        int _sizes[SIZE];
     };
 
 }

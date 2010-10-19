@@ -24,9 +24,9 @@ namespace mongo {
        subclass and define run()
 
        It is ok to call go(), that is, run the job, more than once -- if the 
-       previous invocation
-       has finished. Thus one pattern of use is to embed a backgroundjob
-       in your object and reuse it (or same thing with inheritance).
+       previous invocation has finished. Thus one pattern of use is to embed 
+       a backgroundjob in your object and reuse it (or same thing with 
+       inheritance).  Each go() call spawns a new thread.
 
        note when job destructs, the thread is not terminated if still running.
        generally if the thread could still be running, allocate the job dynamically 
@@ -45,47 +45,56 @@ namespace mongo {
     */
     class BackgroundJob : boost::noncopyable {
     protected:
-        /** define this to do your work! 
-            after this returns, state is set to done
-            (and deletes if deleteSelf true) 
+        /** define this to do your work.
+            after this returns, state is set to done.
+            after this returns, deleted if deleteSelf true.
         */
         virtual void run() = 0;
-
+        virtual string name() = 0;
+        //virtual void ending() { } // hook for post processing if desired after everything else done. not called when deleteSelf=true
     public:
         enum State {
             NotStarted,
             Running,
             Done
         };
-        State getState() const {
-            return state;
-        }
-        bool running() const {
-            return state == Running;
-        }
+        State getState() const { return state; }
+        bool running() const   { return state == Running; }
 
         bool deleteSelf; // delete self when Done?
+
+        bool nameThread; // thread should name itself to the OS / debugger. set to false if very short lived to avoid that call
 
         BackgroundJob() {
             deleteSelf = false;
             state = NotStarted;
+            nameThread = true;
         }
         virtual ~BackgroundJob() { }
 
-        // start job.  returns before it's finished.
+        // starts job.  returns once it is "dispatched"
         BackgroundJob& go();
 
         // wait for completion.  this spins with sleep() so not terribly efficient.
         // returns true if did not time out.
         //
         // note you can call wait() more than once if the first call times out.
-        bool wait(int msMax = 0);
+        bool wait(int msMax = 0, unsigned maxSleepInterval=1000);
+
+        /* start several */
+        static void go(list<BackgroundJob*>&);
+
+        /* wait for several jobs to finish. */
+        static void wait(list<BackgroundJob*>&, unsigned maxSleepInterval=1000);
 
     private:
-        static BackgroundJob *grab;
-        static mongo::mutex mutex;
-        static void thr();
+        //static BackgroundJob *grab;
+        //static mongo::mutex mutex;
+        void thr();
         volatile State state;
+        //boost::mutex _m;
+        //boost::condition _c;
     };
+
 
 } // namespace mongo

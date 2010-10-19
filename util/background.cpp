@@ -15,50 +15,79 @@
  *    limitations under the License.
  */
 
-#include "stdafx.h"
+#include "pch.h"
+
+#include <list>
+
 #include "goodies.h"
+#include "time_support.h"
 #include "background.h"
 
 namespace mongo {
 
-    BackgroundJob *BackgroundJob::grab = 0;
-    mongo::mutex BackgroundJob::mutex;
+// BackgroundJob *BackgroundJob::grab = 0;
+//    mongo::mutex BackgroundJob::mutex("BackgroundJob");
 
-    /* static */
     void BackgroundJob::thr() {
-        assert( grab );
-        BackgroundJob *us = grab;
-        assert( us->state == NotStarted );
-        us->state = Running;
-        grab = 0;
-        us->run();
-        us->state = Done;
-        if ( us->deleteSelf )
-            delete us;
+        assert( state == NotStarted );
+        state = Running;
+
+        if( nameThread ) {
+            string nm = name();
+            setThreadName(nm.c_str());
+        }
+
+        try {
+            run();
+        }
+        catch ( std::exception& e ){
+            log( LL_ERROR ) << "backgroundjob " << name() << "error: " << e.what() << endl;
+        }
+        catch(...) {
+            log( LL_ERROR ) << "uncaught exception in BackgroundJob " << name() << endl;
+        }
+        state = Done;
+        bool delSelf = deleteSelf;
+        //ending();
+        if( delSelf ) 
+            delete this;
     }
 
     BackgroundJob& BackgroundJob::go() {
-        scoped_lock bl(mutex);
-        assert( grab == 0 );
-        grab = this;
-        boost::thread t(thr);
-        while ( grab )
-            sleepmillis(2);
+        boost::thread t( boost::bind(&BackgroundJob::thr, this) );
         return *this;
     }
 
-    bool BackgroundJob::wait(int msMax) {
-        assert( state != NotStarted );
-        int ms = 1;
+    bool BackgroundJob::wait(int msMax, unsigned maxsleep) {
+        unsigned ms = 1;
         Date_t start = jsTime();
         while ( state != Done ) {
             sleepmillis(ms);
-            if ( ms < 1000 )
-                ms = ms * 2;
+            if( ms*2<maxsleep ) ms*=2;
             if ( msMax && ( int( jsTime() - start ) > msMax) )
                 return false;
         }
         return true;
     }
 
+    void BackgroundJob::go(list<BackgroundJob*>& L) {
+        for( list<BackgroundJob*>::iterator i = L.begin(); i != L.end(); i++ )
+            (*i)->go();
+    }
+
+    /* wait for several jobs to finish. */
+    void BackgroundJob::wait(list<BackgroundJob*>& L, unsigned maxsleep) {
+        unsigned ms = 1;
+        {
+            x:
+            sleepmillis(ms);
+            if( ms*2<maxsleep ) ms*=2;
+            for( list<BackgroundJob*>::iterator i = L.begin(); i != L.end(); i++ ) { 
+                //assert( (*i)->state != NotStarted );
+                if( (*i)->state != Done )
+                    goto x;
+            }
+        }
+    }
+    
 } // namespace mongo

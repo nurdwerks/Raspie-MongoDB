@@ -42,15 +42,15 @@ namespace mongo {
          */
         BSONObj globalMax() const { return gMax; }
 
-        bool isGlobalMin( const BSONObj& k ){
+        bool isGlobalMin( const BSONObj& k ) const{
             return k.woCompare( globalMin() ) == 0;
         }
 
-        bool isGlobalMax( const BSONObj& k ){
+        bool isGlobalMax( const BSONObj& k ) const{
             return k.woCompare( globalMax() ) == 0;
         }
         
-        bool isGlobal( const BSONObj& k ){
+        bool isGlobal( const BSONObj& k ) const{
             return isGlobalMin( k ) || isGlobalMax( k );
         }
 
@@ -59,50 +59,39 @@ namespace mongo {
            l == r 0
            l > r positive
          */
-        int compare( const BSONObj& l , const BSONObj& r );
+        int compare( const BSONObj& l , const BSONObj& r ) const;
         
         /**
            @return whether or not obj has all fields in this shard key pattern
 		   e.g. 
 		     ShardKey({num:1}).hasShardKey({ name:"joe", num:3 }) is true
          */
-        bool hasShardKey( const BSONObj& obj );
+        bool hasShardKey( const BSONObj& obj ) const;
         
-        /**
-           returns a query that filters results only for the range desired, i.e. returns 
-             { "field" : { $gte: keyval(min), $lt: keyval(max) } }
-        */
-        void getFilter( BSONObjBuilder& b , const BSONObj& min, const BSONObj& max );
-        
-        /**
-           Returns if the given sort pattern can be ordered by the shard key pattern.
-           Example
-            sort:   { ts: -1 }
-            *this:  { ts:1 }
-              -> -1
-
-              @return
-              0 if sort either doesn't have all the fields or has extra fields
-              < 0 if sort is descending
-              > 1 if sort is ascending
-         */
-        int canOrder( const BSONObj& sort );
-
-        BSONObj key() { return pattern; }
+        BSONObj key() const { return pattern; }
 
         string toString() const;
 
         BSONObj extractKey(const BSONObj& from) const;
         
+        bool partOfShardKey(const char* key ) const {
+            return pattern.hasField(key);
+        }
         bool partOfShardKey(const string& key ) const {
-            return patternfields.count( key ) > 0;
+            return pattern.hasField(key.c_str());
         }
+
+        /**
+         * @return
+         * true if 'this' is a prefix (not necessarily contained) of 'otherPattern'.
+         */
+        bool isPrefixOf( const BSONObj& otherPattern ) const;
+
+        /**
+         * @return BSONObj with _id and shardkey at front. May return original object.
+         */
+        BSONObj moveToFront(const BSONObj& obj) const;
         
-        bool uniqueAllowd( const BSONObj& otherPattern ) const;
-        
-        operator string() const {
-            return pattern.toString();
-        }
     private:
         BSONObj pattern;
         BSONObj gMin;
@@ -113,7 +102,9 @@ namespace mongo {
     };
 
     inline BSONObj ShardKeyPattern::extractKey(const BSONObj& from) const { 
-        return from.extractFields(pattern);
+        BSONObj k = from.extractFields(pattern);
+        uassert(13334, "Shard Key must be less than 512 bytes", k.objsize() < 512);
+        return k;
     }
 
 } 

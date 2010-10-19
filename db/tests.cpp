@@ -19,7 +19,7 @@
    unit test & such
 */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "../util/mmap.h"
 
 namespace mongo {
@@ -32,7 +32,7 @@ namespace mongo {
 
         MemoryMappedFile f;
 
-        long len = 64*1024*1024;
+        unsigned long long len = 64*1024*1024;
         char *p = (char *) f.map("/tmp/test.dat", len);
         char *start = p;
         char *end = p + 64*1024*1024-2;

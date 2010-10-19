@@ -1,6 +1,72 @@
+mongodb (1.7.1) unstable; urgency=low
+
+  * sharding lots of changes
+  * replica_sets lots of changes
+  * see http://jira.mongodb.org/browse/SERVER/fixforversion/10193
+
+ -- Richard Kreuter <richard@10gen.com>  Tue, 28 Sep 2010 16:56:28 -0500
+
+mongodb (1.7.0) unstable; urgency=low
+
+  * sharding lots of changes
+  * replica_sets lots of changes
+
+ -- Richard Kreuter <richard@10gen.com>  Fri, 03 Sep 2010 16:56:28 -0500
+
+mongodb (1.5.8) unstable; urgency=low
+
+  * sharding lots of changes
+  * replica_sets lots of changes
+
+ -- Richard Kreuter <richard@10gen.com>  Tue, 03 Aug 2010 16:56:28 -0500
+
+mongodb (1.5.7) unstable; urgency=low
+
+  * sharding lots of changes
+  * replica_sets lots of changes
+
+ -- Richard Kreuter <richard@10gen.com>  Fri, 30 Jul 2010 16:56:28 -0500
+
+
+mongodb (1.5.6) unstable; urgency=low
+
+  * sharding lots of changes, see http://jira.mongodb.org/browse/SERVER/fixforversion/10179
+
+ -- Richard Kreuter <richard@10gen.com>  Sat, 24 Jul 2010 16:56:28 -0500
+
+mongodb (1.5.5) unstable; urgency=low
+
+  * sharding lots of changes, see http://jira.mongodb.org/browse/SERVER/fixforversion/10157
+
+ -- Richard Kreuter <richard@10gen.com>  Fri, 16 Jul 2010 16:56:28 -0500
+
+mongodb (1.5.4) unstable; urgency=low
+
+  * sharding lots of changes, see http://jira.mongodb.org/browse/SERVER/fixforversion/10157
+
+ -- Richard Kreuter <richard@10gen.com>  Fri, 2 Jul 2010 16:56:28 -0500
+
+mongodb (1.5.3) unstable; urgency=low
+
+  * sharding lots of changes, see http://jira.mongodb.org/browse/SERVER/fixforversion/10157
+
+ -- Richard Kreuter <richard@10gen.com>  Thu, 17 Jun 2010 16:56:28 -0500
+
+mongodb (1.5.2) unstable; urgency=low
+
+  * sharding lots of changes, see http://jira.mongodb.org/browse/SERVER/fixforversion/10143
+
+ -- Richard Kreuter <richard@10gen.com>  Wed, 27 May 2010 16:56:28 -0500
+
+mongodb (1.5.1) unstable; urgency=low
+
+  * sharding lots of changes, see http://jira.mongodb.org/browse/SERVER/fixforversion/10142
+
+ -- Richard Kreuter <richard@10gen.com>  Wed, 3 May 2010 16:56:28 -0500
+
 mongodb (1.5.0) unstable; urgency=low
 
-  * replication w & real-time
+  * replication w & real-time, see http://jira.mongodb.org/browse/SERVER/fixforversion/10125
 
  -- Richard Kreuter <richard@10gen.com>  Wed, 22 Mar 2010 16:56:28 -0500
 

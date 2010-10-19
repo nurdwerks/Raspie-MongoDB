@@ -17,7 +17,7 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "../db/repl.h"
 
 #include "../db/db.h"
@@ -89,7 +89,7 @@ namespace ReplTests {
             int count = 0;
             dblock lk;
             Client::Context ctx( ns() );
-            auto_ptr< Cursor > c = theDataFileMgr.findAll( ns() );
+            boost::shared_ptr<Cursor> c = theDataFileMgr.findAll( ns() );
             for(; c->ok(); c->advance(), ++count ) {
 //                cout << "obj: " << c->current().toString() << endl;
             }
@@ -99,7 +99,7 @@ namespace ReplTests {
             dblock lk;
             Client::Context ctx( cllNS() );
             int count = 0;
-            for( auto_ptr< Cursor > c = theDataFileMgr.findAll( cllNS() ); c->ok(); c->advance() )
+            for( boost::shared_ptr<Cursor> c = theDataFileMgr.findAll( cllNS() ); c->ok(); c->advance() )
                 ++count;
             return count;
         }
@@ -114,7 +114,7 @@ namespace ReplTests {
             vector< BSONObj > ops;
             {
                 Client::Context ctx( cllNS() );
-                for( auto_ptr< Cursor > c = theDataFileMgr.findAll( cllNS() ); c->ok(); c->advance() )
+                for( boost::shared_ptr<Cursor> c = theDataFileMgr.findAll( cllNS() ); c->ok(); c->advance() )
                     ops.push_back( c->current() );
             }
             {
@@ -126,7 +126,7 @@ namespace ReplTests {
         static void printAll( const char *ns ) {
             dblock lk;
             Client::Context ctx( ns );
-            auto_ptr< Cursor > c = theDataFileMgr.findAll( ns );
+            boost::shared_ptr<Cursor> c = theDataFileMgr.findAll( ns );
             vector< DiskLoc > toDelete;
             out() << "all for " << ns << endl;
             for(; c->ok(); c->advance() ) {
@@ -137,7 +137,7 @@ namespace ReplTests {
         static void deleteAll( const char *ns ) {
             dblock lk;
             Client::Context ctx( ns );
-            auto_ptr< Cursor > c = theDataFileMgr.findAll( ns );
+            boost::shared_ptr<Cursor> c = theDataFileMgr.findAll( ns );
             vector< DiskLoc > toDelete;
             for(; c->ok(); c->advance() ) {
                 toDelete.push_back( c->currLoc() );
@@ -387,6 +387,29 @@ namespace ReplTests {
             }
         };
         
+        class UpdateId2 : public ReplTests::Base {
+        public:
+            UpdateId2() :
+            o_( fromjson( "{'_id':1}" ) ),
+            u_( fromjson( "{'_id':2}" ) ){}
+            void run() {
+                deleteAll( ns() );
+                insert( o_ );
+                client()->update( ns(), o_, u_ );
+                ASSERT_EQUALS( 1, count() );
+                checkOne( u_ );
+                
+                deleteAll( ns() );
+                insert( o_ );
+                insert( u_ ); // simulate non snapshot replication, then op application
+                applyAllOperations();
+                ASSERT_EQUALS( 1, count() );
+                checkOne( u_ );
+            }
+        protected:
+            BSONObj o_, u_;            
+        };
+
         class UpdateDifferentFieldExplicitId : public Base {
         public:
             UpdateDifferentFieldExplicitId() :
@@ -932,8 +955,73 @@ namespace ReplTests {
             }            
         };
 
-        
+        class Rename : public Base {
+        public:
+            void doIt() const {
+                client()->update( ns(), BSON( "_id" << 0 ), fromjson( "{$rename:{a:'b'}}" ) );                
+                client()->update( ns(), BSON( "_id" << 0 ), fromjson( "{$set:{a:50}}" ) );                
+            }
+            using ReplTests::Base::check;
+            void check() const {
+                ASSERT_EQUALS( 1, count() );
+                check( BSON( "_id" << 0 << "a" << 50 << "b" << 3 ) , one( fromjson( "{'_id':0}" ) ) );
+            }
+            void reset() const {
+                deleteAll( ns() );
+                insert( fromjson( "{'_id':0,a:3}" ) );
+            }            
+        };
 
+        class RenameReplace : public Base {
+        public:
+            void doIt() const {
+                client()->update( ns(), BSON( "_id" << 0 ), fromjson( "{$rename:{a:'b'}}" ) );                
+                client()->update( ns(), BSON( "_id" << 0 ), fromjson( "{$set:{a:50}}" ) );                
+            }
+            using ReplTests::Base::check;
+            void check() const {
+                ASSERT_EQUALS( 1, count() );
+                check( BSON( "_id" << 0 << "a" << 50 << "b" << 3 ) , one( fromjson( "{'_id':0}" ) ) );
+            }
+            void reset() const {
+                deleteAll( ns() );
+                insert( fromjson( "{'_id':0,a:3,b:100}" ) );
+            }            
+        };
+
+        class RenameOverwrite : public Base {
+        public:
+            void doIt() const {
+                client()->update( ns(), BSON( "_id" << 0 ), fromjson( "{$rename:{a:'b'}}" ) );                
+            }
+            using ReplTests::Base::check;
+            void check() const {
+                ASSERT_EQUALS( 1, count() );
+                check( BSON( "_id" << 0 << "b" << 3 << "z" << 1 ) , one( fromjson( "{'_id':0}" ) ) );
+            }
+            void reset() const {
+                deleteAll( ns() );
+                insert( fromjson( "{'_id':0,z:1,a:3}" ) );
+            }            
+        };
+        
+        class NoRename : public Base {
+        public:
+            void doIt() const {
+                client()->update( ns(), BSON( "_id" << 0 ), fromjson( "{$rename:{c:'b'},$set:{z:1}}" ) );                
+            }
+            using ReplTests::Base::check;
+            void check() const {
+                ASSERT_EQUALS( 1, count() );
+                check( BSON( "_id" << 0 << "a" << 3 << "z" << 1 ) , one( fromjson( "{'_id':0}" ) ) );
+            }
+            void reset() const {
+                deleteAll( ns() );
+                insert( fromjson( "{'_id':0,a:3}" ) );
+            }            
+        };
+        
+        
     } // namespace Idempotence
     
     class DeleteOpIsIdBased : public Base {
@@ -1085,6 +1173,7 @@ namespace ReplTests {
             add< Idempotence::UpdateSameFieldWithId >();
             add< Idempotence::UpdateSameFieldExplicitId >();
             add< Idempotence::UpdateId >();
+            add< Idempotence::UpdateId2 >();
             add< Idempotence::UpdateDifferentFieldExplicitId >();
             add< Idempotence::UpsertUpdateNoMods >();
             add< Idempotence::UpsertInsertNoMods >();
@@ -1116,6 +1205,10 @@ namespace ReplTests {
             add< Idempotence::Pop >();
             add< Idempotence::PopReverse >();
             add< Idempotence::BitOp >();
+            add< Idempotence::Rename >();
+            add< Idempotence::RenameReplace >();
+            add< Idempotence::RenameOverwrite >();
+            add< Idempotence::NoRename >();
             add< DeleteOpIsIdBased >();
             add< DbIdsTest >();
             add< MemIdsTest >();

@@ -17,8 +17,10 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
+
 #include "jsobj.h"
+#include "../util/timer.h"
 
 namespace mongo {
 
@@ -45,19 +47,21 @@ namespace mongo {
 
            return value is true if succeeded.  if false, set errmsg text.
         */
-        virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) = 0;
+        virtual bool run(const string& db, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) = 0;
 
         /* 
 		   note: logTheTop() MUST be false if READ
            if NONE, can't use Client::Context setup
                     use with caution
 		 */
-        virtual LockType locktype() = 0;
+        virtual LockType locktype() const = 0;
 
         /* Return true if only the admin ns has privileges to run this command. */
-        virtual bool adminOnly() {
+        virtual bool adminOnly() const {
             return false;
         }
+
+        void htmlHelp(stringstream&) const;
 
         /* Like adminOnly, but even stricter: we must either be authenticated for admin db, 
            or, if running without auth, on the local interface.
@@ -69,7 +73,7 @@ namespace mongo {
         /* Return true if slaves of a replication pair are allowed to execute the command
            (the command directly from a client -- if fromRepl, always allowed).
         */
-        virtual bool slaveOk() = 0;
+        virtual bool slaveOk() const = 0;
         
         /* Return true if the client force a command to be run on a slave by
            turning on the 'slaveok' option in the command query.
@@ -83,9 +87,7 @@ namespace mongo {
 
            Note if run() returns false, we do NOT log.
         */
-        virtual bool logTheOp() {
-            return false;
-        }
+        virtual bool logTheOp() { return false; }
 
         virtual void help( stringstream& help ) const;
 
@@ -94,8 +96,10 @@ namespace mongo {
         */
         virtual bool requiresAuth() { return true; }
 
-        /** @param webUI expose the command in the web ui as /<name> ? */
-        Command(const char *_name, bool webUI = false);
+        /** @param webUI expose the command in the web ui as localhost:28017/<name> 
+            @param oldName an optional old, deprecated name for the command
+        */
+        Command(const char *_name, bool webUI = false, const char *oldName = 0);
 
         virtual ~Command() {}
 
@@ -108,11 +112,16 @@ namespace mongo {
             return BSONObj();
         }
 
+        static void logIfSlow( const Timer& cmdTimer,  const string& msg);
+
         static map<string,Command*> * _commands;
+        static map<string,Command*> * _commandsByBestName;
         static map<string,Command*> * _webCommands;
 
     public:
+        static const map<string,Command*>* commandsByBestName() { return _commandsByBestName; }
         static const map<string,Command*>* webCommands() { return _webCommands; }
+        /** @return if command was found and executed */
         static bool runAgainstRegistered(const char *ns, BSONObj& jsobj, BSONObjBuilder& anObjBuilder);
         static LockType locktype( const string& name );
         static Command * findCommand( const string& name );

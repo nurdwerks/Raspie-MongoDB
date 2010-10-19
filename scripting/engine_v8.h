@@ -19,6 +19,7 @@
 
 #include <vector>
 #include "engine.h"
+#include "v8_db.h"
 #include <v8.h>
 
 using namespace v8;
@@ -55,11 +56,13 @@ namespace mongo {
         virtual void setElement( const char *field , const BSONElement& e );
         virtual void setObject( const char *field , const BSONObj& obj , bool readOnly);
         virtual void setThis( const BSONObj * obj );
+
+        virtual void rename( const char * from , const char * to );
         
         virtual ScriptingFunction _createFunction( const char * code );
         Local< v8::Function > __createFunction( const char * code );
         virtual int invoke( ScriptingFunction func , const BSONObj& args, int timeoutMs = 0 , bool ignoreReturn = false );
-        virtual bool exec( const string& code , const string& name , bool printResult , bool reportError , bool assertOnError, int timeoutMs );
+        virtual bool exec( const StringData& code , const string& name , bool printResult , bool reportError , bool assertOnError, int timeoutMs );
         virtual string getError(){ return _error; }
         
         virtual void injectNative( const char *field, NativeFunction func );
@@ -101,16 +104,20 @@ namespace mongo {
 
         bool utf8Ok() const { return true; }
 
-        class V8Unlocker : public Unlocker {
-            v8::Unlocker u_;
+        class V8UnlockForClient : public Unlocker {
+            V8Unlock u_;
         };
         
-        virtual auto_ptr<Unlocker> newThreadUnlocker() { return auto_ptr< Unlocker >( new V8Unlocker ); }
+        virtual auto_ptr<Unlocker> newThreadUnlocker() { return auto_ptr< Unlocker >( new V8UnlockForClient ); }
         
+        virtual void interrupt( unsigned opSpec );
+        virtual void interruptAll();
+
     private:
         friend class V8Scope;
     };
     
     
     extern ScriptEngine * globalScriptEngine;
+    extern map< unsigned, int > __interruptSpecToThreadId;
 }

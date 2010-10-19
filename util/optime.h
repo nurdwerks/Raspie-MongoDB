@@ -20,15 +20,20 @@
 #include "../db/concurrency.h"
 
 namespace mongo {
-    void exitCleanly( int code );
+    void exitCleanly( ExitCode code );
     
+    struct ClockSkewException : public DBException {
+        ClockSkewException() : DBException( "clock skew exception" , 20001 ){}
+    };
+
+    /* replsets use RSOpTime.
+       M/S uses OpTime.
+       But this is useable from both.
+       */
+    typedef unsigned long long ReplTime;
+
     /* Operation sequence #.  A combination of current second plus an ordinal value.
      */
-    struct ClockSkewException : public DBException {
-        virtual const char* what() const throw() { return "clock skew exception"; }
-        virtual int getCode(){ return 20001; }
-    };
-    
 #pragma pack(4)
     class OpTime {
         unsigned i;
@@ -45,9 +50,10 @@ namespace mongo {
             i = date.millis;
             secs = date.millis >> 32;
         }
-        OpTime(unsigned long long date) {
-            i = date;
-            secs = date >> 32;
+
+        OpTime(ReplTime x) {
+            i = x;
+            secs = x >> 32;
         }
         OpTime(unsigned a, unsigned b) {
             secs = a;
@@ -91,18 +97,25 @@ namespace mongo {
         unsigned long long asDate() const {
             return ( (unsigned long long) secs ) << 32 | i;
         }
-        //	  unsigned long long& asDate() { return *((unsigned long long *) &i); }
-        
-        bool isNull() {
-            return secs == 0;
+
+        long long asLL() const {
+           return asDate();
         }
+        
+        bool isNull() const { return secs == 0; }
         
         string toStringLong() const {
             char buf[64];
             time_t_to_String(secs, buf);
             stringstream ss;
-            ss << buf << ' ';
+            ss << time_t_to_String_short(secs) << ' ';
             ss << hex << secs << ':' << i;
+            return ss.str();
+        }
+        
+        string toStringPretty() const {
+            stringstream ss;
+            ss << time_t_to_String_short(secs) << ':' << hex << i;
             return ss.str();
         }
         
@@ -111,7 +124,7 @@ namespace mongo {
             ss << hex << secs << ':' << i;
             return ss.str();
         }
-        operator string() const { return toString(); }
+
         bool operator==(const OpTime& r) const {
             return i == r.i && secs == r.secs;
         }
@@ -122,6 +135,15 @@ namespace mongo {
             if ( secs != r.secs )
                 return secs < r.secs;
             return i < r.i;
+        }
+        bool operator<=(const OpTime& r) const { 
+            return *this < r || *this == r;
+        }
+        bool operator>(const OpTime& r) const { 
+            return !(*this <= r);
+        }
+        bool operator>=(const OpTime& r) const {
+            return !(*this < r);
         }
     };
 #pragma pack()

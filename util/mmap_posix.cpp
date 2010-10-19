@@ -15,9 +15,10 @@
  *    limitations under the License.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "mmap.h"
 #include "file_allocator.h"
+#include "../db/concurrency.h"
 
 #include <errno.h>
 #include <sys/mman.h>
@@ -30,15 +31,14 @@ namespace mongo {
     MemoryMappedFile::MemoryMappedFile() {
         fd = 0;
         maphandle = 0;
-        view = 0;
         len = 0;
         created();
     }
-
+    
     void MemoryMappedFile::close() {
-        if ( view )
-            munmap(view, len);
-        view = 0;
+        for( vector<void*>::iterator i = views.begin(); i != views.end(); i++ ) {
+            munmap(*i,len);
+        }
 
         if ( fd )
             ::close(fd);
@@ -49,8 +49,9 @@ namespace mongo {
 #define O_NOATIME 0
 #endif
 
-    void* MemoryMappedFile::map(const char *filename, long &length, int options) {
+    void* MemoryMappedFile::map(const char *filename, unsigned long long &length, int options) {
         // length may be updated by callee.
+        _filename = filename;
         theFileAllocator().allocateAsap( filename, length );
         len = length;
 
@@ -59,11 +60,11 @@ namespace mongo {
         
         fd = open(filename, O_RDWR | O_NOATIME);
         if ( fd <= 0 ) {
-            out() << "couldn't open " << filename << ' ' << OUTPUT_ERRNO << endl;
+            out() << "couldn't open " << filename << ' ' << errnoWithDescription() << endl;
             return 0;
         }
 
-        off_t filelen = lseek(fd, 0, SEEK_END);
+        unsigned long long filelen = lseek(fd, 0, SEEK_END);
         if ( filelen != length ){
             cout << "wanted length: " << length << " filelen: " << filelen << endl;
             cout << sizeof(size_t) << endl;
@@ -71,34 +72,81 @@ namespace mongo {
         }
         lseek( fd, 0, SEEK_SET );
         
-        view = mmap(NULL, length, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+        void * view = mmap(NULL, length, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
         if ( view == MAP_FAILED ) {
-            out() << "  mmap() failed for " << filename << " len:" << length << " " << OUTPUT_ERRNO << endl;
+            out() << "  mmap() failed for " << filename << " len:" << length << " " << errnoWithDescription() << endl;
             if ( errno == ENOMEM ){
-                out() << "     mmap failed with out of memory, if you're using 32-bits, then you probably need to upgrade to 64" << endl;
+                out() << "mmap failed with out of memory, if you're using 32-bits, then you probably need to upgrade to 64" << endl;
             }
             return 0;
         }
+
 
 #if defined(__sunos__)
 #warning madvise not supported on solaris yet
 #else
         if ( options & SEQUENTIAL ){
             if ( madvise( view , length , MADV_SEQUENTIAL ) ){
-                out() << " madvise failed for " << filename << " " << OUTPUT_ERRNO << endl;
+                out() << " madvise failed for " << filename << " " << errnoWithDescription() << endl;
             }
         }
 #endif
+
+        DEV if (! dbMutex.info().isLocked()){
+            _unlock();
+        }
+
+        views.push_back( view );
+
         return view;
     }
     
-    void MemoryMappedFile::flush(bool sync) {
-        if ( view == 0 || fd == 0 )
-            return;
-        if ( msync(view, len, sync ? MS_SYNC : MS_ASYNC) )
-            problem() << "msync " << OUTPUT_ERRNO << endl;
+    void* MemoryMappedFile::testGetCopyOnWriteView(){
+        void * x = mmap( NULL , len , PROT_READ | PROT_WRITE , MAP_PRIVATE , fd , 0 );
+        assert( x );
+        return x;
     }
     
+    void  MemoryMappedFile::testCloseCopyOnWriteView(void * x ){
+        munmap(x,len);
+    }
+    
+    void MemoryMappedFile::flush(bool sync) {
+        if ( views.empty() || fd == 0 )
+            return;
+        if ( msync(views[0], len, sync ? MS_SYNC : MS_ASYNC) )
+            problem() << "msync " << errnoWithDescription() << endl;
+    }
+    
+    class PosixFlushable : public MemoryMappedFile::Flushable {
+    public:
+        PosixFlushable( void * view , HANDLE fd , long len )
+            : _view( view ) , _fd( fd ) , _len(len){
+        }
+
+        void flush(){
+            if ( _view && _fd )
+                if ( msync(_view, _len, MS_SYNC ) )
+                    problem() << "msync " << errnoWithDescription() << endl;
+            
+        }
+
+        void * _view;
+        HANDLE _fd;
+        long _len;
+    };
+
+    MemoryMappedFile::Flushable * MemoryMappedFile::prepareFlush(){
+        return new PosixFlushable( views.empty() ? 0 : views[0] , fd , len );
+    }
+
+    void MemoryMappedFile::_lock() {
+        if (! views.empty() ) assert(mprotect(views[0], len, PROT_READ | PROT_WRITE) == 0);
+    }
+
+    void MemoryMappedFile::_unlock() {
+        if (! views.empty() ) assert(mprotect(views[0], len, PROT_READ) == 0);
+    }
 
 } // namespace mongo
 

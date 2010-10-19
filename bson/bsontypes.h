@@ -17,7 +17,13 @@
 
 #pragma once
 
+#include "util/misc.h"
+
+namespace bson { }
+
 namespace mongo {
+
+    using namespace std;
 
     class BSONArrayBuilder;
     class BSONElement;
@@ -88,6 +94,14 @@ enum BSONType {
        bdtCustom and above are ones that the JS compiler understands, but are
        opaque to the database.
     */
-    enum BinDataType { Function=1, ByteArray=2, bdtUUID = 3, MD5Type=5, bdtCustom=128 };
-    
-};
+    enum BinDataType { 
+        BinDataGeneral=0,
+        Function=1, 
+        ByteArrayDeprecated=2, /* use BinGeneral instead */
+        bdtUUID = 3, 
+        MD5Type=5, 
+        bdtCustom=128 
+    };
+ 
+}
+

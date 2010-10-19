@@ -17,12 +17,25 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "../db/jsobj.h"
 
-extern const char * jsconcatcode; // TODO: change name to mongoJSCode
-
 namespace mongo {
+
+    struct JSFile {
+        const char* name;
+        const StringData& source;
+    };
+
+    namespace JSFiles {
+        extern const JSFile collection;
+        extern const JSFile db;
+        extern const JSFile mongo;
+        extern const JSFile mr;
+        extern const JSFile query;
+        extern const JSFile servers;
+        extern const JSFile utils;
+    }
 
     typedef unsigned long long ScriptingFunction;
     typedef BSONObj (*NativeFunction) ( const BSONObj &args );
@@ -41,7 +54,22 @@ namespace mongo {
         
         virtual void localConnect( const char * dbName ) = 0;
         virtual void externalSetup() = 0;
-        
+
+        class NoDBAccess {
+            Scope * _s;
+        public:
+            NoDBAccess( Scope * s ){
+                _s = s;
+            }
+            ~NoDBAccess(){
+                _s->rename( "____db____" , "db" );
+            }
+        };
+        NoDBAccess disableDBAccess( const char * why ){
+            rename( "db" , "____db____" );
+            return NoDBAccess( this );
+        }
+
         virtual double getNumber( const char *field ) = 0;
         virtual int getNumberInt( const char *field ){ return (int)getNumber( field ); }
         virtual long long getNumberLongLong( const char *field ){ return (long long)getNumber( field ); }
@@ -62,6 +90,7 @@ namespace mongo {
                     
         virtual ScriptingFunction createFunction( const char * code );
         
+        virtual void rename( const char * from , const char * to ) = 0;
         /**
          * @return 0 on success
          */
@@ -81,10 +110,25 @@ namespace mongo {
             throw UserException( 9005 , (string)"invoke failed: " + getError() );
         }
 
-        virtual bool exec( const string& code , const string& name , bool printResult , bool reportError , bool assertOnError, int timeoutMs = 0 ) = 0;
-        virtual void execSetup( const string& code , const string& name = "setup" ){
+        virtual bool exec( const StringData& code , const string& name , bool printResult , bool reportError , bool assertOnError, int timeoutMs = 0 ) = 0;
+        virtual void execSetup( const StringData& code , const string& name = "setup" ){
             exec( code , name , false , true , true , 0 );
         }
+
+        void execSetup( const JSFile& file){
+            execSetup(file.source, file.name);
+        }
+
+        void execCoreFiles(){
+            // keeping same order as in SConstruct
+            execSetup(JSFiles::utils);
+            execSetup(JSFiles::db);
+            execSetup(JSFiles::mongo);
+            execSetup(JSFiles::mr);
+            execSetup(JSFiles::query);
+            execSetup(JSFiles::collection);
+        }
+
         virtual bool execFile( const string& filename , bool printResult , bool reportError , bool assertOnError, int timeoutMs = 0 );
         
         virtual void injectNative( const char *field, NativeFunction func ) = 0;
@@ -153,6 +197,30 @@ namespace mongo {
             if ( _connectCallback )
                 _connectCallback( c );
         }
+
+        // engine implementation may either respond to interrupt events or
+        // poll for interrupts
+        
+        // the interrupt functions must not wait indefinitely on a lock
+        virtual void interrupt( unsigned opSpec ) {}
+        virtual void interruptAll() {}
+        
+        static void setGetInterruptSpecCallback( unsigned ( *func )() ) { _getInterruptSpecCallback = func; }
+        static bool haveGetInterruptSpecCallback() { return _getInterruptSpecCallback; }
+        static unsigned getInterruptSpec() {
+            massert( 13474, "no _getInterruptSpecCallback", _getInterruptSpecCallback );
+            return _getInterruptSpecCallback();
+        }
+        
+        static void setCheckInterruptCallback( const char * ( *func )() ) { _checkInterruptCallback = func; }
+        static bool haveCheckInterruptCallback() { return _checkInterruptCallback; }
+        static const char * checkInterrupt() {
+            return _checkInterruptCallback ? _checkInterruptCallback() : "";
+        }
+        static bool interrupted() {
+            const char *r = checkInterrupt();
+            return r && r[ 0 ];
+        }
         
     protected:
         virtual Scope * createScope() = 0;
@@ -160,6 +228,8 @@ namespace mongo {
     private:
         void ( *_scopeInitCallback )( Scope & );
         static void ( *_connectCallback )( DBClientWithCommands & );
+        static const char * ( *_checkInterruptCallback )();
+        static unsigned ( *_getInterruptSpecCallback )();
     };
 
     bool hasJSReturn( const string& s );

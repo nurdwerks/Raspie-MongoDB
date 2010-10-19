@@ -16,7 +16,7 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "client/dbclient.h"
 #include "db/json.h"
 #include "../util/httpclient.h"
@@ -35,7 +35,7 @@ namespace mongo {
     class Stat : public Tool {
     public:
 
-        Stat() : Tool( "stat" , false , "admin" ){
+        Stat() : Tool( "stat" , NO_LOCAL , "admin" ){
             _sleep = 1;
             _rowNum = 0;
             _showHeaders = true;
@@ -51,6 +51,8 @@ namespace mongo {
                 ;
 
             addPositionArg( "sleep" , 1 );
+
+            _autoreconnect = true;
         }
 
         virtual void printExtraHelp( ostream & out ){
@@ -58,6 +60,27 @@ namespace mongo {
             out << "sleep time: time to wait (in seconds) between calls" << endl;
         }
 
+        virtual void printExtraHelpAfter( ostream & out ){
+            out << "\n";
+            out << " Fields\n";
+            out << "   inserts/s \t- # of inserts per second\n";
+            out << "   query/s   \t- # of queries per second\n";
+            out << "   update/s  \t- # of updates per second\n";
+            out << "   delete/s  \t- # of deletes per second\n";
+            out << "   getmore/s \t- # of get mores (cursor batch) per second\n";
+            out << "   command/s \t- # of commands per second\n";
+            out << "   flushes/s \t- # of fsync flushes per second\n";
+            out << "   mapped    \t- amount of data mmaped (total data size) megabytes\n";
+            out << "   visze     \t- virtual size of process in megabytes\n";
+            out << "   res       \t- resident size of process in megabytes\n";
+            out << "   faults/s  \t- # of pages faults/sec (linux only)\n";
+            out << "   locked    \t- percent of time in global write lock\n";
+            out << "   idx miss  \t- percent of btree page misses (sampled)\n";
+            out << "   q t|r|w   \t- ops waiting for lock from db.currentOp() (total|read|write)\n";
+            out << "   conn      \t- number of open connections\n";
+        }
+
+        
         BSONObj stats(){
             if ( _http ){
                 HttpClient c;
@@ -107,7 +130,9 @@ namespace mongo {
             double y = ( b.getFieldDotted( outof ).number() - a.getFieldDotted( outof ).number() );
             if ( y == 0 )
                 return 0;
-            return x / y;
+            double p = x / y;
+            p = (double)((int)(p * 1000)) / 10;
+            return p;
         }
 
         void cellstart( stringstream& ss , string name , unsigned& width ){
@@ -131,11 +156,9 @@ namespace mongo {
         }
 
         void cell( stringstream& ss , string name , unsigned width , const string& val ){
-            assert( val.size() <= width );
             cellstart( ss , name , width );
             ss << setw(width) << val << " ";
         }
-
 
         string doRow( const BSONObj& a , const BSONObj& b ){
             stringstream ss;
@@ -150,6 +173,13 @@ namespace mongo {
                 }
             }
 
+	    if ( b["backgroundFlushing"].type() == Object ){
+                BSONObj ax = a["backgroundFlushing"].embeddedObject();
+                BSONObj bx = b["backgroundFlushing"].embeddedObject();
+                BSONObjIterator i( bx );
+                cell( ss , "flushes/s" , 6 , (int)diff( "flushes" , ax , bx ) );
+            }
+
             if ( b.getFieldDotted("mem.supported").trueValue() ){
                 BSONObj bx = b["mem"].embeddedObject();
                 BSONObjIterator i( bx );
@@ -157,10 +187,24 @@ namespace mongo {
                 cell( ss , "vsize" , 6 , bx["virtual"].numberInt() );
                 cell( ss , "res" , 6 , bx["resident"].numberInt() );
             }
-            
-            cell( ss , "% locked" , 8 , percent( "globalLock.totalTime" , "globalLock.lockTime" , a , b ) );
-            cell( ss , "% idx miss" , 8 , percent( "indexCounters.btree.accesses" , "indexCounters.btree.misses" , a , b ) );
 
+            if ( b["extra_info"].type() == Object ){
+                BSONObj ax = a["extra_info"].embeddedObject();
+                BSONObj bx = b["extra_info"].embeddedObject();
+                if ( ax["page_faults"].type() || ax["page_faults"].type() )
+                    cell( ss , "faults/s" , 6 , (int)diff( "page_faults" , ax , bx ) );
+            }
+            
+            cell( ss , "locked %" , 8 , percent( "globalLock.totalTime" , "globalLock.lockTime" , a , b ) );
+            cell( ss , "idx miss %" , 8 , percent( "indexCounters.btree.accesses" , "indexCounters.btree.misses" , a , b ) );
+
+            if ( b.getFieldDotted( "globalLock.currentQueue" ).type() == Object ){
+                int r = b.getFieldDotted( "globalLock.currentQueue.readers" ).numberInt();
+                int w = b.getFieldDotted( "globalLock.currentQueue.writers" ).numberInt();
+                stringstream temp;
+                temp << r+w << "|" << r << "|" << w;
+                cell( ss , "q t|r|w" , 10 , temp.str() );
+            }
             cell( ss , "conn" , 5 , b.getFieldDotted( "connections.current" ).numberInt() );
 
             {
@@ -172,7 +216,7 @@ namespace mongo {
                      << setfill('0') << setw(2) << t.tm_min
                      << ":" 
                      << setfill('0') << setw(2) << t.tm_sec;
-                cell( ss , "time" , 8 , temp.str() );
+                cell( ss , "time" , 10 , temp.str() );
             }
 
             if ( _showHeaders && _rowNum % 20 == 0 ){
@@ -204,7 +248,15 @@ namespace mongo {
 
             while ( _rowCount == 0 || _rowNum < _rowCount ){
                 sleepsecs(_sleep);
-                BSONObj now = stats();
+                BSONObj now;
+                try {
+                    now = stats();
+                }
+                catch ( std::exception& e ){
+                    cout << "can't get data: " << e.what() << endl;
+                    continue;
+                }
+
                 if ( now.isEmpty() )
                     return -2;
                 

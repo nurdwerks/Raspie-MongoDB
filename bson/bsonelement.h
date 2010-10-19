@@ -17,7 +17,24 @@
 
 #pragma once
 
+#include <vector>
+#include <string.h>
+#include "util/builder.h"
+
+namespace bson {
+    typedef mongo::BSONElement be;
+    typedef mongo::BSONObj bo;
+    typedef mongo::BSONObjBuilder bob;
+}
+
 namespace mongo {
+
+    class OpTime;
+    class BSONElement;
+
+    /* l and r MUST have same type when called: check that first. */
+    int compareElementValues(const BSONElement& l, const BSONElement& r);
+
 
 /** BSONElement represents an "element" in a BSONObj.  So for the object { a : 3, b : "abc" },
     'a : 3' is the first element (key+value).
@@ -52,17 +69,35 @@ public:
     void Null()                 const { chk(isNull()); }
     void OK()                   const { chk(ok()); }
 
+    /** populate v with the value of the element.  If type does not match, throw exception. 
+        useful in templates -- see also BSONObj::Vals().
+        */
+    void Val(Date_t& v)         const { v = Date(); }
+    void Val(long long& v)      const { v = Long(); }
+    void Val(bool& v)           const { v = Bool(); }
+    void Val(BSONObj& v)        const;
+    void Val(mongo::OID& v)     const { v = OID(); }
+    void Val(int& v)            const { v = Int(); }
+    void Val(double& v)         const { v = Double(); }
+    void Val(string& v)         const { v = String(); }
+
     /** Use ok() to check if a value is assigned:
           if( myObj["foo"].ok() ) ...
     */
     bool ok() const { return !eoo(); }
 
-    string toString( bool includeFieldName = true ) const;
-    operator string() const { return toString(); }
+    string toString( bool includeFieldName = true, bool full=false) const;
+    void toString(StringBuilder& s, bool includeFieldName = true, bool full=false) const;
     string jsonString( JsonStringFormat format, bool includeFieldNames = true, int pretty = 0 ) const;
+    operator string() const { return toString(); }
 
     /** Returns the type of the element */
-    BSONType type() const { return (BSONType) *reinterpret_cast<const signed char*>(data); }
+    BSONType type() const { return (BSONType)((signed char)*data); }
+
+    /** retrieve a field within this element 
+        throws exception if *this is not an embedded object
+    */
+    BSONElement operator[] (const string& field) const;
         
     /** returns the tyoe of the element fixed for the main type
         the main purpose is numbers.  any numeric type will return NumberDouble
@@ -183,7 +218,9 @@ public:
         return type() == mongo::String ? valuestr() : "";
     }
     /** Get the string value of the element.  If not a string returns "". */
-    string str() const { return valuestrsafe(); }
+    string str() const {
+        return type() == mongo::String ? string(valuestr(), valuestrsize()-1) : string();
+    }
 
     /** Get javascript code of a CodeWScope data element. */
     const char * codeWScopeCode() const {
@@ -203,26 +240,23 @@ public:
 
     BSONObj codeWScopeObject() const;
 
-    string ascode() const {
-        switch( type() ){
-        case mongo::String:
-        case Code:
-            return valuestr();
-        case CodeWScope:
-            return codeWScopeCode();
-        default:
-            log() << "can't convert type: " << (int)(type()) << " to code" << endl;
-        }
-        uassert( 10062 ,  "not code" , 0 );
-        return "";
-    }
-
-    /** Get binary data.  Element must be of type BinData */
+    /** Get raw binary data.  Element must be of type BinData. Doesn't handle type 2 specially */
     const char *binData(int& len) const { 
         // BinData: <int len> <byte subtype> <byte[len] data>
         assert( type() == BinData );
         len = valuestrsize();
         return value() + 5;
+    }
+    /** Get binary data.  Element must be of type BinData. Handles type 2 */
+    const char *binDataClean(int& len) const { 
+        // BinData: <int len> <byte subtype> <byte[len] data>
+        if (binDataType() != ByteArrayDeprecated){
+            return binData(len);
+        } else {
+            // Skip extra size
+            len = valuestrsize() - 4;
+            return value() + 5 + 4;
+        }
     }
         
     BinDataType binDataType() const {
@@ -256,7 +290,6 @@ public:
         return woCompare( r , true ) == 0;
     }
 
-
     /** Well ordered comparison.
         @return <0: l<r. 0:l==r. >0:l>r
         order by type, field name, and field value.
@@ -264,9 +297,7 @@ public:
     */
     int woCompare( const BSONElement &e, bool considerFieldName = true ) const;
 
-    const char * rawdata() const {
-        return data;
-    }
+    const char * rawdata() const { return data; }
         
     /** 0 == Equality, just not defined yet */
     int getGtLtOp( int def = 0 ) const;
@@ -300,10 +331,6 @@ public:
         }
     }
 
-    OpTime optime() const {
-        return OpTime( readLE< unsigned long long >( value() ) );
-    }
-
     Date_t timestampTime() const{
         unsigned long long t = readLE<unsigned int>( value() + 4 );
         return t * 1000;
@@ -332,19 +359,23 @@ public:
     }
         
     // If maxLen is specified, don't scan more than maxLen bytes.
-    BSONElement(const char *d, int maxLen = -1) : data(d) {
+    explicit BSONElement(const char *d, int maxLen = -1) : data(d) {
         fieldNameSize_ = -1;
         if ( eoo() )
             fieldNameSize_ = 0;
         else {
             if ( maxLen != -1 ) {
-                int size = strnlen( fieldName(), maxLen - 1 );
+                int size = (int) strnlen( fieldName(), maxLen - 1 );
                 massert( 10333 ,  "Invalid field name", size != -1 );
                 fieldNameSize_ = size + 1;
             }
         }
         totalSize = -1;
     }
+
+    string _asCode() const;
+    OpTime _opTime() const;
+
 private:
     const char *data;
     mutable int fieldNameSize_; // cached value
@@ -358,7 +389,11 @@ private:
     friend class BSONObjIterator;
     friend class BSONObj;
     const BSONElement& chk(int t) const { 
-        uassert(13111, "unexpected or missing type value in BSON object", t == type());
+        if ( t != type() ){
+            StringBuilder ss;
+            ss << "wrong type for BSONElement (" << fieldName() << ") " << type() << " != " << t;
+            uasserted(13111, ss.str() );
+        }
         return *this;
     }
     const BSONElement& chk(bool expr) const { 
@@ -474,7 +509,7 @@ private:
         }
     }
 
-    /** Retrieve int value for the element safely.  Zero returned if not a number. */
+    /** Retrieve int value for the element safely.  Zero returned if not a number. Converted to int if another numeric type. */
     inline int BSONElement::numberInt() const { 
         switch( type() ) {
         case NumberDouble:
@@ -501,5 +536,12 @@ private:
             return 0;
         }
     }    
+
+    inline BSONElement::BSONElement() {
+        static char z = 0;
+        data = &z;
+        fieldNameSize_ = 0;
+        totalSize = 1;
+    }
 
 }

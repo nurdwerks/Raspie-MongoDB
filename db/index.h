@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include "../stdafx.h"
+#include "../pch.h"
 #include "diskloc.h"
 #include "jsobj.h"
 #include "indexkey.h"
@@ -131,7 +131,7 @@ namespace mongo {
         
         const IndexSpec& getSpec() const;
 
-        operator string() const {
+        string toString() const {
             return info.obj().toString();
         }
     };
@@ -156,6 +156,7 @@ namespace mongo {
     };
 
     class NamespaceDetails;
-    void getIndexChanges(vector<IndexChanges>& v, NamespaceDetails& d, BSONObj newObj, BSONObj oldObj);
+    // changedId should be initialized to false
+    void getIndexChanges(vector<IndexChanges>& v, NamespaceDetails& d, BSONObj newObj, BSONObj oldObj, bool &cangedId);
     void dupCheck(vector<IndexChanges>& v, NamespaceDetails& d, DiskLoc curObjLoc);
 } // namespace mongo

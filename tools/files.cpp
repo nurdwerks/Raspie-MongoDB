@@ -16,7 +16,7 @@
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "client/gridfs.h"
 #include "client/dbclient.h"
 
@@ -87,7 +87,7 @@ public:
         if ( cmd == "list" ){
             BSONObjBuilder b;
             if ( filename.size() )
-                b.appendRegex( "filename" , ( (string)"^" + filename ).c_str() );
+                b.appendRegex( "filename" , ( (string)"^" + filename ) );
             display( &g , b.obj() );
             return 0;
         }
@@ -100,7 +100,7 @@ public:
 
         if ( cmd == "search" ){
             BSONObjBuilder b;
-            b.appendRegex( "filename" , filename.c_str() );
+            b.appendRegex( "filename" , filename );
             display( &g , b.obj() );
             return 0;
         }
@@ -140,14 +140,14 @@ public:
             }
 
             conn().getLastError();
-            cout << "done!";
+            cout << "done!" << endl;
             return 0;
         }
 
         if ( cmd == "delete" ){
             g.removeFile(filename);
             conn().getLastError();
-            cout << "done!";
+            cout << "done!" << endl;
             return 0;
         }
 

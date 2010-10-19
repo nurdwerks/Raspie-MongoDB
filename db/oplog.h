@@ -28,26 +28,38 @@
 #include "dbhelpers.h"
 #include "query.h"
 #include "queryoptimizer.h"
-
 #include "../client/dbclient.h"
-
 #include "../util/optime.h"
+#include "../util/timer.h"
 
 namespace mongo {
 
     void createOplog();
 
-    /* Write operation to the log (local.oplog.$main)
-       "i" insert
-       "u" update
-       "d" delete
-       "c" db cmd
-       "db" declares presence of a database (ns is set to the db name + '.')
+    void _logOpObjRS(const BSONObj& op);
+
+    /** Write operation to the log (local.oplog.$main)
+      
+       @param opstr
+        "i" insert
+        "u" update
+        "d" delete
+        "c" db cmd
+        "n" no-op
+        "db" declares presence of a database (ns is set to the db name + '.')
+
+       See _logOp() in oplog.cpp for more details.   
     */
     void logOp(const char *opstr, const char *ns, const BSONObj& obj, BSONObj *patt = 0, bool *b = 0);
 
     void logKeepalive();
-    
+
+    /** puts obj in the oplog as a comment (a no-op).  Just for diags. 
+        convention is 
+          { msg : "text", ... }
+    */
+    void logOpComment(const BSONObj& obj);
+
     void oplogCheckCloseDatabase( Database * db );
     
     extern int __findingStartInitialTimeout; // configurable for testing    
@@ -62,7 +74,7 @@ namespace mongo {
         _findingStartCursor( 0 )
         { init(); }
         bool done() const { return !_findingStart; }
-        auto_ptr< Cursor > cRelease() { return _c; }
+        shared_ptr<Cursor> cRelease() { return _c; }
         void next() {
             if ( !_findingStartCursor || !_findingStartCursor->c->ok() ) {
                 _findingStart = false;
@@ -86,7 +98,6 @@ namespace mongo {
                             return;
                         }
                     }
-                    maybeRelease();
                     return;
                 }
                 case FindExtent: {
@@ -103,7 +114,6 @@ namespace mongo {
                     // There might be a more efficient implementation than creating new cursor & client cursor each time,
                     // not worrying about that for now
                     createClientCursor( prev );
-                    maybeRelease();
                     return;
                 }
                 case InExtent: {
@@ -114,14 +124,26 @@ namespace mongo {
                         return;
                     }
                     _findingStartCursor->c->advance();
-                    maybeRelease();
                     return;
                 }
                 default: {
                     massert( 12600, "invalid _findingStartMode", false );
                 }
             }                
-        }            
+        }     
+        bool prepareToYield() {
+            if ( _findingStartCursor ) {
+                return _findingStartCursor->prepareToYield( _yieldData );
+            }
+            return true;
+        }
+        void recoverFromYield() {
+            if ( _findingStartCursor ) {
+                if ( !ClientCursor::recoverFromYield( _yieldData ) ) {
+                    _findingStartCursor = 0;
+                }
+            }
+        }        
     private:
         enum FindingStartMode { Initial, FindExtent, InExtent };
         const QueryPlan &_qp;
@@ -130,10 +152,11 @@ namespace mongo {
         auto_ptr< CoveredIndexMatcher > _matcher;
         Timer _findingStartTimer;
         ClientCursor * _findingStartCursor;
-        auto_ptr< Cursor > _c;
+        shared_ptr<Cursor> _c;
+        ClientCursor::YieldData _yieldData;
         DiskLoc startLoc( const DiskLoc &rec ) {
             Extent *e = rec.rec()->myExtent( rec );
-            if ( e->myLoc != _qp.nsd()->capExtent )
+            if ( !_qp.nsd()->capLooped() || ( e->myLoc != _qp.nsd()->capExtent ) )
                 return e->firstRecord;
             // Likely we are on the fresh side of capExtent, so return first fresh record.
             // If we are on the stale side of capExtent, then the collection is small and it
@@ -141,18 +164,26 @@ namespace mongo {
             return _qp.nsd()->capFirstNewRecord;
         }
         
+        // should never have an empty extent in the oplog, so don't worry about that case
         DiskLoc prevLoc( const DiskLoc &rec ) {
             Extent *e = rec.rec()->myExtent( rec );
-            if ( e->xprev.isNull() )
-                e = _qp.nsd()->lastExtent.ext();
-            else
-                e = e->xprev.ext();
-            if ( e->myLoc != _qp.nsd()->capExtent )
-                return e->firstRecord;
+            if ( _qp.nsd()->capLooped() ) {
+                if ( e->xprev.isNull() )
+                    e = _qp.nsd()->lastExtent.ext();
+                else
+                    e = e->xprev.ext();
+                if ( e->myLoc != _qp.nsd()->capExtent )
+                    return e->firstRecord;
+            } else {
+                if ( !e->xprev.isNull() ) {
+                    e = e->xprev.ext();
+                    return e->firstRecord;
+                }
+            }
             return DiskLoc(); // reached beginning of collection
         }
         void createClientCursor( const DiskLoc &startLoc = DiskLoc() ) {
-            auto_ptr<Cursor> c = _qp.newCursor( startLoc );
+            shared_ptr<Cursor> c = _qp.newCursor( startLoc );
             _findingStartCursor = new ClientCursor(QueryOption_NoCursorTimeout, c, _qp.ns());
         }
         void destroyClientCursor() {
@@ -161,24 +192,14 @@ namespace mongo {
                 _findingStartCursor = 0;
             }
         }
-        void maybeRelease() {
-            RARELY {
-                CursorId id = _findingStartCursor->cursorid;
-                _findingStartCursor->updateLocation();
-                {
-                    dbtemprelease t;
-                }   
-                _findingStartCursor = ClientCursor::find( id, false );
-            }                                            
-        }
         void init() {
             // Use a ClientCursor here so we can release db mutex while scanning
             // oplog (can take quite a while with large oplogs).
-            auto_ptr<Cursor> c = _qp.newReverseCursor();
-            _findingStartCursor = new ClientCursor(QueryOption_NoCursorTimeout, c, _qp.ns());
+            shared_ptr<Cursor> c = _qp.newReverseCursor();
+            _findingStartCursor = new ClientCursor(QueryOption_NoCursorTimeout, c, _qp.ns(), BSONObj());
             _findingStartTimer.reset();
             _findingStartMode = Initial;
-            BSONElement tsElt = _qp.query()[ "ts" ];
+            BSONElement tsElt = _qp.originalQuery()[ "ts" ];
             massert( 13044, "no ts field in query", !tsElt.eoo() );
             BSONObjBuilder b;
             b.append( tsElt );
@@ -187,5 +208,8 @@ namespace mongo {
         }
     };
 
+    void pretouchOperation(const BSONObj& op);
+    void pretouchN(vector<BSONObj>&, unsigned a, unsigned b);
 
+    void applyOperation_inlock(const BSONObj& op);
 }

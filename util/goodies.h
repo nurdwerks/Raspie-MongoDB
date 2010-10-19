@@ -1,5 +1,5 @@
-// goodies.h
-// miscellaneous junk
+// @file goodies.h
+// miscellaneous
 
 /*    Copyright 2009 10gen Inc.
  *
@@ -18,9 +18,22 @@
 
 #pragma once
 
+#include "../bson/util/misc.h"
+#include "concurrency/mutex.h"
+
 namespace mongo {
 
-#if !defined(_WIN32) && !defined(NOEXECINFO) && !defined(__freebsd__) && !defined(__sun__)
+    void setThreadName(const char * name);
+    string getThreadName();
+    
+    template<class T>
+    inline string ToString(const T& t) { 
+        stringstream s;
+        s << t;
+        return s.str();
+    }
+
+#if !defined(_WIN32) && !defined(NOEXECINFO) && !defined(__freebsd__) && !defined(__openbsd__) && !defined(__sun__)
 
 } // namespace mongo
 
@@ -37,18 +50,19 @@ namespace mongo {
     inline void printStackTrace( ostream &o = cout ) {
         void *b[20];
         size_t size;
-        char **strings;
         size_t i;
 
         size = backtrace(b, 20);
-        strings = backtrace_symbols(b, size);
-
         for (i = 0; i < size; i++)
             o << hex << b[i] << dec << ' ';
-        o << '\n';
+        o << endl;
+
+        char **strings;
+
+        strings = backtrace_symbols(b, size);
         for (i = 0; i < size; i++)
             o << ' ' << strings[i] << '\n';
-
+        o.flush();
         free (strings);
     }
 #else
@@ -57,20 +71,6 @@ namespace mongo {
 
     /* set to TRUE if we are exiting */
     extern bool goingAway;
-
-    /* find the multimap member which matches a particular key and value.
-
-       note this can be slow if there are a lot with the same key.
-    */
-    template<class C,class K,class V> inline typename C::iterator kv_find(C& c, const K& k,const V& v) {
-        pair<typename C::iterator,typename C::iterator> p = c.equal_range(k);
-
-        for ( typename C::iterator it=p.first; it!=p.second; ++it)
-            if ( it->second == v )
-                return it;
-
-        return c.end();
-    }
 
     bool isPrime(int n);
     int nextPrime(int n);
@@ -101,15 +101,14 @@ namespace mongo {
     }
 
 // PRINT(2+2);  prints "2+2: 4"
-#define PRINT(x) cout << #x ": " << (x) << endl
+#define MONGO_PRINT(x) cout << #x ": " << (x) << endl
+#define PRINT MONGO_PRINT
 // PRINTFL; prints file:line
-#define PRINTFL cout << __FILE__ ":" << __LINE__ << endl
-
-#undef yassert
+#define MONGO_PRINTFL cout << __FILE__ ":" << __LINE__ << endl
+#define PRINTFL MONGO_PRINTFL
 
 #undef assert
-#define assert xassert
-#define yassert 1
+#define assert MONGO_assert
 
     struct WrappingInt {
         WrappingInt() {
@@ -135,229 +134,8 @@ namespace mongo {
         }
     };
 
-} // namespace mongo
-
-#include <ctime>
-
-namespace mongo {
-
-    inline void time_t_to_String(time_t t, char *buf) {
-#if defined(_WIN32)
-        ctime_s(buf, 64, &t);
-#else
-        ctime_r(&t, buf);
-#endif
-        buf[24] = 0; // don't want the \n
-    }
-
-
-    inline void time_t_to_Struct(time_t t, struct tm * buf , bool local = false ) {
-#if defined(_WIN32)
-        if ( local )
-            localtime_s( buf , &t );
-        else
-            gmtime_s(buf, &t);
-#else
-        if ( local )
-            localtime_r(&t, buf);
-        else
-            gmtime_r(&t, buf);
-#endif
-    }
-
-    inline string terseCurrentTime(){
-        struct tm t;
-        time_t_to_Struct( time(0) , &t );
-        stringstream ss;
-        ss << ( 1900 + t.tm_year ) << "-"
-           << t.tm_mon << "-"
-           << t.tm_mday << "-"
-           << t.tm_hour << "-"
-           << t.tm_min;
-        return ss.str();
-    }
-
-#define asctime _asctime_not_threadsafe_
-#define gmtime _gmtime_not_threadsafe_
-#define localtime _localtime_not_threadsafe_
-#define ctime _ctime_is_not_threadsafe_
-
-#if defined(_WIN32) || defined(__sunos__)
-    inline void sleepsecs(int s) {
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        xt.sec += s;
-        boost::thread::sleep(xt);
-    }
-    inline void sleepmillis(int s) {
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        xt.sec += ( s / 1000 );
-        xt.nsec += ( s % 1000 ) * 1000000;
-        if ( xt.nsec >= 1000000000 ) {
-            xt.nsec -= 1000000000;
-            xt.sec++;
-        }        
-        boost::thread::sleep(xt);
-    }
-    inline void sleepmicros(int s) {
-        if ( s <= 0 )
-            return;
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        xt.sec += ( s / 1000000 );
-        xt.nsec += ( s % 1000000 ) * 1000;
-        if ( xt.nsec >= 1000000000 ) {
-            xt.nsec -= 1000000000;
-            xt.sec++;
-        }        
-        boost::thread::sleep(xt);
-    }
-#else
-    inline void sleepsecs(int s) {
-        struct timespec t;
-        t.tv_sec = s;
-        t.tv_nsec = 0;
-        if ( nanosleep( &t , 0 ) ){
-            cout << "nanosleep failed" << endl;
-        }
-    }
-    inline void sleepmicros(int s) {
-        if ( s <= 0 )
-            return;
-        struct timespec t;
-        t.tv_sec = (int)(s / 1000000);
-        t.tv_nsec = 1000 * ( s % 1000000 );
-        struct timespec out;
-        if ( nanosleep( &t , &out ) ){
-            cout << "nanosleep failed" << endl;
-        }
-    }
-    inline void sleepmillis(int s) {
-        sleepmicros( s * 1000 );
-    }
-#endif
-
-// note this wraps
-    inline int tdiff(unsigned told, unsigned tnew) {
-        return WrappingInt::diff(tnew, told);
-    }
-    inline unsigned curTimeMillis() {
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        unsigned t = xt.nsec / 1000000;
-        return (xt.sec & 0xfffff) * 1000 + t;
-    }
-
-    struct Date_t {
-        // TODO: make signed (and look for related TODO's)
-        unsigned long long millis;
-        Date_t(): millis(0) {}
-        Date_t(unsigned long long m): millis(m) {}
-        operator unsigned long long&() { return millis; }
-        operator const unsigned long long&() const { return millis; }
-        string toString() const { 
-            char buf[64];
-            time_t_to_String(millis, buf);
-            return buf;
-        }
-    };
-
-    inline Date_t jsTime() {
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        unsigned long long t = xt.nsec / 1000000;
-        return ((unsigned long long) xt.sec * 1000) + t;
-    }
-
-    inline unsigned long long curTimeMicros64() {
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        unsigned long long t = xt.nsec / 1000;
-        return (((unsigned long long) xt.sec) * 1000000) + t;
-    }
-
-// measures up to 1024 seconds.  or, 512 seconds with tdiff that is...
-    inline unsigned curTimeMicros() {
-        boost::xtime xt;
-        boost::xtime_get(&xt, boost::TIME_UTC);
-        unsigned t = xt.nsec / 1000;
-        unsigned secs = xt.sec % 1024;
-        return secs*1000000 + t;
-    }
-    using namespace boost;
-    
-    extern bool __destroyingStatics;
-    
-    // If you create a local static instance of this class, that instance will be destroyed
-    // before all global static objects are destroyed, so __destroyingStatics will be set
-    // to true before the global static variables are destroyed.
-    class StaticObserver : boost::noncopyable {
-    public:
-        ~StaticObserver() { __destroyingStatics = true; }
-    };
-    
-    // On pthread systems, it is an error to destroy a mutex while held.  Static global
-    // mutexes may be held upon shutdown in our implementation, and this way we avoid
-    // destroying them.
-    class mutex : boost::noncopyable {
-    public:
-        mutex() { _m = new boost::mutex(); }
-        ~mutex() {
-            if( !__destroyingStatics ) {
-                delete _m;
-            }
-        }
-        class scoped_lock : boost::noncopyable {
-        public:
-            scoped_lock( mongo::mutex &m ) : _l( m.boost() ) {}
-            boost::mutex::scoped_lock &boost() { return _l; }
-        private:
-            boost::mutex::scoped_lock _l;
-        };
-    private:
-        boost::mutex &boost() { return *_m; }
-        boost::mutex *_m;
-    };
-    
-    typedef mongo::mutex::scoped_lock scoped_lock;
-    typedef boost::recursive_mutex::scoped_lock recursive_scoped_lock;
-
-// simple scoped timer
-    class Timer {
-    public:
-        Timer() {
-            reset();
-        }
-        Timer( unsigned long long start ) {
-            old = start;
-        }
-        int seconds(){
-            return (int)(micros() / 1000000);
-        }
-        int millis() {
-            return (long)(micros() / 1000);
-        }
-        unsigned long long micros() {
-            unsigned long long n = curTimeMicros64();
-            return n - old;
-        }
-        unsigned long long micros(unsigned long long & n) { // returns cur time in addition to timer result
-            n = curTimeMicros64();
-            return n - old;
-        }
-        unsigned long long startTime(){
-            return old;
-        }
-        void reset() {
-            old = curTimeMicros64();
-        }
-    private:
-        unsigned long long old;
-    };
-
     /*
-
+    
     class DebugMutex : boost::noncopyable {
     	friend class lock;
     	mongo::mutex m;
@@ -376,6 +154,7 @@ namespace mongo {
         if ( strlen(str) < l ) return false;
         return strncmp(str, prefix, l) == 0;
     }
+    inline bool startsWith(string s, string p) { return startsWith(s.c_str(), p.c_str()); }
 
     inline bool endsWith(const char *p, const char *suffix) {
         size_t a = strlen(p);
@@ -383,12 +162,6 @@ namespace mongo {
         if ( b > a ) return false;
         return strcmp(p + a - b, suffix) == 0;
     }
-
-} // namespace mongo
-
-#include "boost/detail/endian.hpp"
-
-namespace mongo {
 
     inline unsigned long swapEndian(unsigned long x) {
         return
@@ -407,15 +180,6 @@ namespace mongo {
         return swapEndian(x);
     }
 #endif
-
-    // Like strlen, but only scans up to n bytes.
-    // Returns -1 if no '0' found.
-    inline int strnlen( const char *s, int n ) {
-        for( int i = 0; i < n; ++i )
-            if ( !s[ i ] )
-                return i;
-        return -1;
-    }
     
 #if !defined(_WIN32)
     typedef int HANDLE;
@@ -458,7 +222,7 @@ namespace mongo {
         boost::thread_specific_ptr<T> _val;
     };
 
-    class ProgressMeter {
+    class ProgressMeter : boost::noncopyable {
     public:
         ProgressMeter( long long total , int secondsBetween = 3 , int checkInterval = 100 ){
             reset( total , secondsBetween , checkInterval );
@@ -525,6 +289,10 @@ namespace mongo {
             buf << _done << "/" << _total << " " << (_done*100)/_total << "%";
             return buf.str();
         }
+
+        bool operator==( const ProgressMeter& other ) const {
+            return this == &other;
+        }
     private:
 
         bool _active;
@@ -538,9 +306,39 @@ namespace mongo {
         int _lastTime;
     };
 
+    class ProgressMeterHolder : boost::noncopyable {
+    public:
+        ProgressMeterHolder( ProgressMeter& pm )
+            : _pm( pm ){
+        }
+        
+        ~ProgressMeterHolder(){
+            _pm.finished();
+        }
+
+        ProgressMeter* operator->(){
+            return &_pm;
+        }
+
+        bool hit( int n = 1 ){
+            return _pm.hit( n );
+        }
+
+        void finished(){
+            _pm.finished();
+        }
+        
+        bool operator==( const ProgressMeter& other ){
+            return _pm == other;
+        }
+        
+    private:
+        ProgressMeter& _pm;
+    };
+
     class TicketHolder {
     public:
-        TicketHolder( int num ){
+        TicketHolder( int num ) : _mutex("TicketHolder") {
             _outof = num;
             _num = num;
         }
@@ -574,13 +372,15 @@ namespace mongo {
             _num = _outof - used;
         }
 
-        int available(){
+        int available() const {
             return _num;
         }
 
-        int used(){
+        int used() const {
             return _outof - _num;
         }
+
+        int outof() const { return _outof; }
 
     private:
         int _outof;
@@ -623,7 +423,7 @@ namespace mongo {
             _buf = 0;
         }
         
-        operator string() const {
+        string toString() const {
             string s = _buf;
             return s;
         }
@@ -646,11 +446,11 @@ namespace mongo {
         }
 
         bool operator!=( const char * str ) const {
-            return strcmp( _buf , str );
+            return strcmp( _buf , str ) != 0;
         }
 
         bool empty() const {
-            return _buf[0] == 0;
+            return _buf == 0 || _buf[0] == 0;
         }
 
     private:
@@ -680,29 +480,50 @@ namespace mongo {
     
     // for convenience, '{' is greater than anything and stops number parsing
     inline int lexNumCmp( const char *s1, const char *s2 ) {
+        //cout << "START : " << s1 << "\t" << s2 << endl;
         while( *s1 && *s2 ) {
 
-            bool p1 = ( *s1 == '{' );
-            bool p2 = ( *s2 == '{' );
+            bool p1 = ( *s1 == (char)255 );
+            bool p2 = ( *s2 == (char)255 );
+            //cout << "\t\t " << p1 << "\t" << p2 << endl;
             if ( p1 && !p2 )
                 return 1;
             if ( p2 && !p1 )
                 return -1;
-        
+                
             bool n1 = isNumber( *s1 );
             bool n2 = isNumber( *s2 );
         
             if ( n1 && n2 ) {
-                char * e1;
-                char * e2;
-                long l1 = strtol( s1 , &e1 , 10 );
-                long l2 = strtol( s2 , &e2 , 10 );
-            
-                if ( l1 > l2 )
+                // get rid of leading 0s
+                while ( *s1 == '0' ) s1++;
+                while ( *s2 == '0' ) s2++;
+
+                char * e1 = (char*)s1;
+                char * e2 = (char*)s2;
+
+                // find length
+                // if end of string, will break immediately ('\0')
+                while ( isNumber (*e1) ) e1++;
+                while ( isNumber (*e2) ) e2++;
+
+                int len1 = e1-s1;
+                int len2 = e2-s2;
+
+                int result;
+                // if one is longer than the other, return
+                if ( len1 > len2 ) {
                     return 1;
-                else if ( l1 < l2 )
+                }
+                else if ( len2 > len1 ) {
                     return -1;
-            
+                }
+                // if the lengths are equal, just strcmp
+                else if ( (result = strncmp(s1, s2, len1)) != 0 ) {
+                    return result;
+                }
+
+                // otherwise, the numbers are equal
                 s1 = e1;
                 s2 = e2;
                 continue;
@@ -729,5 +550,46 @@ namespace mongo {
             return -1;
         return 0;
     }
-    
+
+    /** A generic pointer type for function arguments.
+     *  It will convert from any pointer type except auto_ptr.
+     *  Semantics are the same as passing the pointer returned from get()
+     *  const ptr<T>  =>  T * const
+     *  ptr<const T>  =>  T const *  or  const T*
+     */
+    template <typename T>
+    struct ptr{
+        
+        ptr() : _p(NULL) {}
+
+        // convert to ptr<T>
+        ptr(T* p) : _p(p) {} // needed for NULL
+        template<typename U> ptr(U* p) : _p(p) {}
+        template<typename U> ptr(const ptr<U>& p) : _p(p) {}
+        template<typename U> ptr(const boost::shared_ptr<U>& p) : _p(p.get()) {}
+        template<typename U> ptr(const boost::scoped_ptr<U>& p) : _p(p.get()) {}
+        //template<typename U> ptr(const auto_ptr<U>& p) : _p(p.get()) {}
+        
+        // assign to ptr<T>
+        ptr& operator= (T* p) { _p = p; return *this; } // needed for NULL
+        template<typename U> ptr& operator= (U* p) { _p = p; return *this; }
+        template<typename U> ptr& operator= (const ptr<U>& p) { _p = p; return *this; }
+        template<typename U> ptr& operator= (const boost::shared_ptr<U>& p) { _p = p.get(); return *this; }
+        template<typename U> ptr& operator= (const boost::scoped_ptr<U>& p) { _p = p.get(); return *this; }
+        //template<typename U> ptr& operator= (const auto_ptr<U>& p) { _p = p.get(); return *this; }
+
+        // use
+        T* operator->() const { return _p; }
+        T& operator*() const { return *_p; }
+
+        // convert from ptr<T>
+        operator T* () const { return _p; }
+
+    private:
+        T* _p;
+    };
+
+    /** Hmmmm */
+    using namespace boost;
+
 } // namespace mongo

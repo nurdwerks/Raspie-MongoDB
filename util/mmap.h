@@ -18,112 +18,129 @@
 #pragma once
 
 namespace mongo {
-
+    
     /* the administrative-ish stuff here */
-    class MongoFile { 
+    class MongoFile : boost::noncopyable { 
+        
+    public:
+        /** Flushable has to fail nicely if the underlying object gets killed */
+        class Flushable {
+        public:
+            virtual ~Flushable(){}
+            virtual void flush() = 0;
+        };
+        
     protected:
         virtual void close() = 0;
         virtual void flush(bool sync) = 0;
-
+        /**
+         * returns a thread safe object that you can call flush on
+         * Flushable has to fail nicely if the underlying object gets killed
+         */
+        virtual Flushable * prepareFlush() = 0;
+        
         void created(); /* subclass must call after create */
         void destroyed(); /* subclass must call in destructor */
+
+        virtual unsigned long long length() const = 0;
+
+        // only supporting on posix mmap
+        virtual void _lock() {}
+        virtual void _unlock() {}
+
     public:
-        virtual long length() = 0;
+        virtual ~MongoFile() {}
 
         enum Options {
-            SEQUENTIAL = 1 // hint - e.g. FILE_FLAG_SEQUENTIAL_SCAN on windows
+            SEQUENTIAL = 1, // hint - e.g. FILE_FLAG_SEQUENTIAL_SCAN on windows
+            READONLY = 2    // not contractually guaranteed, but if specified the impl has option to fault writes
         };
-
-        virtual ~MongoFile() {}
 
         static int flushAll( bool sync ); // returns n flushed
         static long long totalMappedLength();
         static void closeAllFiles( stringstream &message );
 
-        /* can be "overriden" if necessary */
-        static bool exists(boost::filesystem::path p) {
-            return boost::filesystem::exists(p);
-        }
+        // Locking allows writes. Reads are always allowed
+        static void lockAll();
+        static void unlockAll();
+
+        static bool exists(boost::filesystem::path p) { return boost::filesystem::exists(p); }
     };
 
-    class MFTemplate : public MongoFile {
-    protected:
-        virtual void close();
-        virtual void flush(bool sync);
-    public:
-        virtual long length();
+#ifndef _DEBUG
+    // no-ops in production
+    inline void MongoFile::lockAll() {}
+    inline void MongoFile::unlockAll() {}
+#endif
 
-        class Pointer {
-        public:
-            void* at(int offset, int len);
-			void grow(int offset, int len);
-            bool isNull() const;
-        };
-
-        Pointer map( const char *filename );
-        Pointer map(const char *_filename, long &length, int options=0);
+    struct MongoFileAllowWrites {
+        MongoFileAllowWrites(){
+            MongoFile::lockAll();
+        }
+        ~MongoFileAllowWrites(){
+            MongoFile::unlockAll();
+        }
     };
 
     class MemoryMappedFile : public MongoFile {
     public:
-        class Pointer {
-            char *_base;
-        public:
-            Pointer() : _base(0) { }
-            Pointer(void *p) : _base((char*) p) { }
-            void* at(int offset, int maxLen) { return _base + offset; } 
-			void grow(int offset, int len) { /* no action required with mem mapped file */ }
-            bool isNull() const { return _base == 0; }
-        };
-
         MemoryMappedFile();
-        ~MemoryMappedFile() {
-            destroyed();
+
+        virtual ~MemoryMappedFile() {
+            destroyed(); // cleans up from the master list of mmaps
             close();
         }
+
         void close();
-        
+
         // Throws exception if file doesn't exist. (dm may2010: not sure if this is always true?)
-        void* map( const char *filename );
-        /*Pointer pmap( const char *filename ) {
-            void *p = map(filename);
-            uassert(13077, "couldn't open/map file", p);
-            return Pointer(p);
-        }*/
+        void* map(const char *filename);
+        void* mapWithOptions(const char *filename, int options);
 
         /* Creates with length if DNE, otherwise uses existing file length,
            passed length.
+           @param options MongoFile::Options bits
         */
-        void* map(const char *filename, long &length, int options = 0 );
+        void* map(const char *filename, unsigned long long &length, int options = 0 );
+
+        /* Create. Must not exist. 
+           @param zero fill file with zeros when true
+        */
+        void* create(string filename, unsigned long long len, bool zero);
 
         void flush(bool sync);
+        virtual Flushable * prepareFlush();
 
-        /*void* viewOfs() {
-            return view;
-        }*/
+        long shortLength() const          { return (long) len; }
+        unsigned long long length() const { return len; }
+        string filename() const           { return _filename; }
 
-        long length() {
-            return len;
-        }
-        
+        void* createReadOnlyMap();
+
+        void* testGetCopyOnWriteView();
+        void  testCloseCopyOnWriteView(void *);
+
     private:
-        static void updateLength( const char *filename, long &length );
+        static void updateLength( const char *filename, unsigned long long &length );
         
         HANDLE fd;
         HANDLE maphandle;
-        void *view;
-        long len;
+        vector<void *> views;
+        unsigned long long len;
+        string _filename;
+
+#ifdef _WIN32
+        boost::shared_ptr<mutex> _flushMutex;
+#endif
+    protected:
+        // only posix mmap implementations will support this
+        virtual void _lock();
+        virtual void _unlock();
+
     };
 
     void printMemInfo( const char * where );    
 
-#include "ramstore.h"
-
-//#define _RAMSTORE
-#if defined(_RAMSTORE)
-    typedef RamStoreFile MMF;
-#else
     typedef MemoryMappedFile MMF;
-#endif
 
 } // namespace mongo

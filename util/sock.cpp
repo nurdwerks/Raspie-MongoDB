@@ -1,4 +1,4 @@
-// sock.cpp
+// @file sock.cpp
 
 /*    Copyright 2009 10gen Inc.
  *
@@ -15,16 +15,25 @@
  *    limitations under the License.
  */
 
-#include "stdafx.h"
+#include "pch.h"
 #include "sock.h"
 
 namespace mongo {
 
-    static mongo::mutex sock_mutex;
+    static mongo::mutex sock_mutex("sock_mutex");
 
     static bool ipv6 = false;
     void enableIPv6(bool state) { ipv6 = state; }
     bool IPv6Enabled() { return ipv6; }
+
+    string getAddrInfoStrError(int code) { 
+#if !defined(_WIN32)
+        return gai_strerror(code);
+#else
+        /* gai_strerrorA is not threadsafe on windows. don't use it. */
+        return errnoWithDescription(code);
+#endif
+    }
 
     SockAddr::SockAddr(int sourcePort) {
         memset(as<sockaddr_in>().sin_zero, 0, sizeof(as<sockaddr_in>().sin_zero));
@@ -51,12 +60,26 @@ namespace mongo {
             addrinfo hints;
             memset(&hints, 0, sizeof(addrinfo));
             hints.ai_socktype = SOCK_STREAM;
-            hints.ai_flags = AI_ADDRCONFIG;
+            //hints.ai_flags = AI_ADDRCONFIG; // This is often recommended but don't do it. SERVER-1579
+            hints.ai_flags |= AI_NUMERICHOST; // first pass tries w/o DNS lookup
             hints.ai_family = (IPv6Enabled() ? AF_UNSPEC : AF_INET);
 
             stringstream ss;
             ss << port;
             int ret = getaddrinfo(iporhost, ss.str().c_str(), &hints, &addrs);
+
+            // old C compilers on IPv6-capable hosts return EAI_NODATA error
+#ifdef EAI_NODATA
+            int nodata = (ret == EAI_NODATA);
+#else
+            int nodata = false;
+#endif
+            if (ret == EAI_NONAME || nodata){
+                // iporhost isn't an IP address, allow DNS lookup
+                hints.ai_flags &= ~AI_NUMERICHOST;
+                ret = getaddrinfo(iporhost, ss.str().c_str(), &hints, &addrs);
+            }
+
             if (ret){
                 log() << "getaddrinfo(\"" << iporhost << "\") failed: " << gai_strerror(ret) << endl;
                 *this = SockAddr(port); 
@@ -125,7 +148,7 @@ namespace mongo {
     inline bool UDPConnection::init(const SockAddr& myAddr) {
         sock = socket(myAddr.getType(), SOCK_DGRAM, IPPROTO_UDP);
         if ( sock == INVALID_SOCKET ) {
-            out() << "invalid socket? " << OUTPUT_ERRNO << endl;
+            out() << "invalid socket? " << errnoWithDescription() << endl;
             return false;
         }
         if ( ::bind(sock, myAddr.raw(), myAddr.addressSize) != 0 ) {
@@ -153,7 +176,7 @@ namespace mongo {
         if ( c.init(me) ) {
             char buf[256];
             out() << "sendto: ";
-            out() << c.sendto(buf, sizeof(buf), dest) << " " << OUTPUT_ERRNO << endl;
+            out() << c.sendto(buf, sizeof(buf), dest) << " " << errnoWithDescription() << endl;
         }
         out() << "end\n";
     }
@@ -166,7 +189,7 @@ namespace mongo {
         if ( c.init(me) ) {
             char buf[256];
             out() << "recvfrom: ";
-            out() << c.recvfrom(buf, sizeof(buf), sender) << " " << OUTPUT_ERRNO << endl;
+            out() << c.recvfrom(buf, sizeof(buf), sender) << " " << errnoWithDescription() << endl;
         }
         out() << "end listentest\n";
     }
@@ -179,8 +202,8 @@ namespace mongo {
             WinsockInit() {
                 WSADATA d;
                 if ( WSAStartup(MAKEWORD(2,2), &d) != 0 ) {
-                    out() << "ERROR: wsastartup failed " << OUTPUT_ERRNO << endl;
-                    problem() << "ERROR: wsastartup failed " << OUTPUT_ERRNO << endl;
+                    out() << "ERROR: wsastartup failed " << errnoWithDescription() << endl;
+                    problem() << "ERROR: wsastartup failed " << errnoWithDescription() << endl;
                     dbexit( EXIT_NTSERVICE_ERROR );
                 }
             }
@@ -194,6 +217,16 @@ namespace mongo {
     
     ListeningSockets* ListeningSockets::get(){
         return _instance;
+    }
+
+    
+    string getHostNameCached(){
+        static string host;
+        if ( host.empty() ){
+            string s = getHostName();
+            host = s;
+        }
+        return host;
     }
 
 } // namespace mongo

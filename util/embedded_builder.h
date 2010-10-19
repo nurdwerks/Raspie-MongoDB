@@ -18,6 +18,7 @@
 #pragma once
 
 namespace mongo {
+
     // utility class for assembling hierarchical objects
     class EmbeddedBuilder {
     public:
@@ -49,11 +50,11 @@ namespace mongo {
                 return;
             }
             prepareContext( name );
-            back()->appendAs( e, name.c_str() );
+            back()->appendAs( e, name );
         }
         BufBuilder &subarrayStartAs( string name ) {
             prepareContext( name );
-            return back()->subarrayStart( name.c_str() );
+            return back()->subarrayStart( name );
         }
         void done() {
             while( ! _builderStorage.empty() )
@@ -71,7 +72,7 @@ namespace mongo {
 
     private:
         void addBuilder( const string &name ) {
-            shared_ptr< BSONObjBuilder > newBuilder( new BSONObjBuilder( back()->subobjStart( name.c_str() ) ) );
+            shared_ptr< BSONObjBuilder > newBuilder( new BSONObjBuilder( back()->subobjStart( name ) ) );
             _builders.push_back( make_pair( name, newBuilder.get() ) );
             _builderStorage.push_back( newBuilder );
         }
