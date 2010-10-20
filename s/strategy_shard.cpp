@@ -236,7 +236,7 @@ namespace mongo {
             if ( multi ){
                 set<Shard> shards;
                 manager->getShardsForQuery( shards , chunkFinder );
-                packedLE<int>::t* x = &refLE<int>(r.d().afterNS());
+                packedLE<int>::t* x = &refLE<int>( const_cast<char*>( r.d().afterNS() ) );
                 x[0] |= UpdateOption_Broadcast;
                 for ( set<Shard>::iterator i=shards.begin(); i!=shards.end(); i++){
                     doWrite( dbUpdate , r , *i , false );
@@ -302,7 +302,7 @@ namespace mongo {
                 throw UserException( 8015 , "can only delete with a non-shard key pattern if can delete as many as we find" );
             
             for ( set<Shard>::iterator i=shards.begin(); i!=shards.end(); i++){
-                packedLE<int>::t * x = &refLE<int>(r.d().afterNS());
+                packedLE<int>::t * x = &refLE<int>( const_cast<char*>( r.d().afterNS() ) );
                 x[0] |= RemoveOption_Broadcast;
                 doWrite( dbDelete , r , *i , false );
             }
