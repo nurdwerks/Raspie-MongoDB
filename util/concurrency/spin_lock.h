@@ -36,9 +36,6 @@ namespace mongo {
         void unlock();
 
     private:
-#ifndef __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
-#define __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
-#endif
 #if defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
         volatile bool _locked;
 #elif defined(_WIN32)
