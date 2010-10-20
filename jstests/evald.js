@@ -57,16 +57,12 @@ doIt( "db.jstests_evald.count( { $where: function() { while( 1 ) { ; } } } )", t
 doIt( "db.jstests_evald.count( { $where: function() { while( 1 ) { ; } } } )", false, true );
 doIt( "while( true ) {;}", false );
 doIt( "while( true ) {;}", true );
-// the for loops are currently required, as a spawned op masks the parent op - see SERVER-1844
+
+// the for loops are currently required, as a spawned op masks the parent op - see SERVER-1931
 doIt( "while( 1 ) { for( var i = 0; i < 10000; ++i ) {;} db.jstests_evald.count( {i:10} ); }", true );
 doIt( "while( 1 ) { for( var i = 0; i < 10000; ++i ) {;} db.jstests_evald.count( {i:10} ); }", false );
 doIt( "while( 1 ) { for( var i = 0; i < 10000; ++i ) {;} db.jstests_evald.count(); }", true );
 doIt( "while( 1 ) { for( var i = 0; i < 10000; ++i ) {;} db.jstests_evald.count(); }", false );
 
-// these two are SERVER-1841
-//doIt( "while( 1 ) { try { db.jstests_evald.count( {i:10} ); } catch ( e ) { } }", true );
-//doIt( "while( 1 ) { try { while( 1 ) { ; } } catch ( e ) { } }", true );
-
-// the following won't work in v8 currently, see SERVER-1840
-//doIt( "while( 1 ) { db.jstests_evald.count( {$where:function(){ while( 1 ) {;}} } ); }", false );
-//doIt( "while( 1 ) { db.jstests_evald.count( {$where:function(){ while( 1 ) {;}} } ); }", true );
+doIt( "while( 1 ) { for( var i = 0; i < 10000; ++i ) {;} try { db.jstests_evald.count( {i:10} ); } catch ( e ) { } }", true );
+doIt( "while( 1 ) { try { while( 1 ) { ; } } catch ( e ) { } }", true );

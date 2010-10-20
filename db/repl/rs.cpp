@@ -62,20 +62,20 @@ namespace mongo {
 
     void ReplSetImpl::changeState(MemberState s) { box.change(s, _self); }
 
+    const bool closeOnRelinquish = true;
+
     void ReplSetImpl::relinquish() { 
         if( box.getState().primary() ) {
             log() << "replSet relinquishing primary state" << rsLog;
-            changeState(MemberState::RS_RECOVERING);
-            // SERVER-1681:
-            //changeState(MemberState::RS_SECONDARY);
+            changeState(MemberState::RS_SECONDARY);
             
-            /* close sockets that were talking to us */
-            // [dm] do we want to do this?  not sure.
-            //log() << "replSet closing sockets after reqlinquishing primary" << rsLog;
-            //MessagingPort::closeAllSockets(1);*/
-
-            // todo: >
-            //changeState(MemberState::RS_SECONDARY);
+            if( closeOnRelinquish ) {
+                /* close sockets that were talking to us so they don't blithly send many writes that will fail
+                   with "not master" (of course client could check result code, but in case they are not)
+                */
+                log() << "replSet closing client sockets after reqlinquishing primary" << rsLog;
+                MessagingPort::closeAllSockets(1);
+            }
         }
         else if( box.getState().startup2() ) {
             // ? add comment
@@ -93,17 +93,36 @@ namespace mongo {
     }
 
     // for the replSetStepDown command
-    bool ReplSetImpl::_stepDown() { 
+    bool ReplSetImpl::_stepDown(int secs) { 
         lock lk(this);
-        // **TODO** should this just set elect.steppedDown and call relinquish()???  seems that would be better
         if( box.getState().primary() ) { 
-            changeState(MemberState::RS_RECOVERING);
-            //changeState(MemberState::RS_SECONDARY);
-            elect.steppedDown = time(0) + 60;
-            log() << "replSet info stepped down as primary" << rsLog;
+            elect.steppedDown = time(0) + secs;
+            log() << "replSet info stepping down as primary secs=" << secs << rsLog;
+            relinquish();
             return true;
         }
         return false;
+    }
+
+    bool ReplSetImpl::_freeze(int secs) { 
+        lock lk(this);
+        /* note if we are primary we remain primary but won't try to elect ourself again until 
+           this time period expires. 
+           */
+        if( secs == 0 ) { 
+            elect.steppedDown = 0;
+            log() << "replSet info 'unfreezing'" << rsLog;
+        }
+        else {
+            if( !box.getState().primary() ) { 
+                elect.steppedDown = time(0) + secs;
+                log() << "replSet info 'freezing' for " << secs << " seconds" << rsLog;
+            }
+            else {
+                log() << "replSet info received freeze command but we are primary" << rsLog;
+            }
+        }
+        return true;
     }
 
     void ReplSetImpl::msgUpdateHBInfo(HeartbeatInfo h) { 

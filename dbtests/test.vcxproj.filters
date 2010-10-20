@@ -689,6 +689,12 @@
     <ClCompile Include="..\db\mongommf.cpp">
       <Filter>storage related</Filter>
     </ClCompile>
+    <ClCompile Include="..\db\compact.cpp">
+      <Filter>db\cpp</Filter>
+    </ClCompile>
+    <ClCompile Include="..\db\commands\isself.cpp">
+      <Filter>db\cpp</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\SConstruct">

@@ -99,9 +99,10 @@ namespace mongo {
                 for( set<Client*>::iterator i = Client::clients.begin(); i != Client::clients.end(); i++ ) { 
                     Client *c = *i;
                     assert( c );
-                    if ( c == &me )
-                        continue;
                     CurOp* co = c->curop();
+                    if ( c == &me && !co ) {
+                        continue;
+                    }
                     assert( co );
                     if( all || co->active() )
                         vals.push_back( co->infoNoauth() );
@@ -344,7 +345,6 @@ namespace mongo {
         }
         currentOp.ensureStarted();
         currentOp.done();
-        killCurrentOp.finishOp();
         int ms = currentOp.totalTimeMillis();
         
         log = log || (logLevel >= 2 && ++ctr % 512 == 0);
@@ -364,7 +364,7 @@ namespace mongo {
                 mongo::log(1) << "note: not profiling because recursive read lock" << endl;
             }
             else {
-                mongolock lk(true);
+                writelock lk;
                 if ( dbHolder.isLoaded( nsToDatabase( currentOp.getNS() ) , dbpath ) ){
                     Client::Context c( currentOp.getNS() );
                     profile(ss.str().c_str(), ms);
@@ -449,7 +449,7 @@ namespace mongo {
         assert( d.moreJSObjs() );
         assert( query.objsize() < m.header()->dataLen() );
         BSONObj toupdate = d.nextJsObj();
-        uassert( 10055 , "update object too large", toupdate.objsize() <= MaxBSONObjectSize);
+        uassert( 10055 , "update object too large", toupdate.objsize() <= BSONObjMaxUserSize);
         assert( toupdate.objsize() < m.header()->dataLen() );
         assert( query.objsize() + toupdate.objsize() < m.header()->dataLen() );
         bool upsert = flags & UpdateOption_Upsert;
@@ -465,7 +465,7 @@ namespace mongo {
             op.setQuery(query);
         }        
 
-        mongolock lk(1);
+        writelock lk;
 
         // if this ever moves to outside of lock, need to adjust check Client::Context::_finishInit
         if ( ! broadcast && handlePossibleShardedMessage( m , 0 ) )
@@ -527,7 +527,7 @@ namespace mongo {
         QueryResult* msgdata;
         while( 1 ) {
             try {
-                mongolock lk(false);
+                readlock lk;
                 Client::Context ctx(ns);
                 msgdata = processGetMore(ns, ntoreturn, cursorid, curop, pass, exhaust);
             }
@@ -589,7 +589,7 @@ namespace mongo {
         Client::Context ctx(ns);		
         while ( d.moreJSObjs() ) {
             BSONObj js = d.nextJsObj();
-            uassert( 10059 , "object to insert too large", js.objsize() <= MaxBSONObjectSize);
+            uassert( 10059 , "object to insert too large", js.objsize() <= BSONObjMaxUserSize);
             theDataFileMgr.insertWithObjMod(ns, js, false);
             logOp("i", ns, js);
             globalOpCounters.gotInsert();

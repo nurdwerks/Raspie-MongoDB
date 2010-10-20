@@ -650,7 +650,10 @@ if ( typeof _threadInject != "undefined" ){
                                    "jstests/mr3.js",
                                    "jstests/indexh.js",
                                    "jstests/apitest_db.js",
-                                   "jstests/evalb.js"] );
+                                   "jstests/evalb.js",
+                                   "jstests/evald.js",
+                                   "jstests/evalf.js",
+                                   "jstests/killop.js"] );
         
         // some tests can't be run in parallel with each other
         var serialTestsArr = [ "jstests/fsync.js",
@@ -1054,37 +1057,48 @@ shellHelper.it = function(){
     shellPrintHelper( ___it___ );
 }
 
-shellHelper.show = function( what ){
-    assert( typeof what == "string" );
-    
-    if( what == "profile" ) { 
-	if( db.system.profile.count() == 0 ) { 
-	    print("db.system.profile is empty");
-	    print("Use db.setProfilingLevel(2) will enable profiling");
-	    print("Use db.system.profile.find() to show raw profile entries");
-	} 
-	else { 
-	    print(); 
-	    db.system.profile.find({ millis : { $gt : 0 } }).sort({$natural:-1}).limit(5).forEach( function(x){print(""+x.millis+"ms " + String(x.ts).substring(0,24)); print(x.info); print("\n");} )
-        }
-	return "";
-    }
+shellHelper.show = function (what) {
+    assert(typeof what == "string");
 
-    if ( what == "users" ){
-	db.system.users.find().forEach( printjson );
+    if (what == "profile") {
+        if (db.system.profile.count() == 0) {
+            print("db.system.profile is empty");
+            print("Use db.setProfilingLevel(2) will enable profiling");
+            print("Use db.system.profile.find() to show raw profile entries");
+        }
+        else {
+            print();
+            db.system.profile.find({ millis: { $gt: 0} }).sort({ $natural: -1 }).limit(5).forEach(function (x) { print("" + x.millis + "ms " + String(x.ts).substring(0, 24)); print(x.info); print("\n"); })
+        }
         return "";
     }
 
-    if ( what == "collections" || what == "tables" ) {
-        db.getCollectionNames().forEach( function(x){print(x)} );
-	return "";
+    if (what == "users") {
+        db.system.users.find().forEach(printjson);
+        return "";
     }
-    
-    if ( what == "dbs" ) {
-        db.getMongo().getDBNames().sort().forEach( function(x){print(x)} );
-	return "";
+
+    if (what == "collections" || what == "tables") {
+        db.getCollectionNames().forEach(function (x) { print(x) });
+        return "";
     }
-    
+
+    if (what == "dbs") {
+        var dbs = db.getMongo().getDBs();
+        var size = {};
+        dbs.databases.forEach(function (x) { size[x.name] = x.sizeOnDisk; });
+        var names = dbs.databases.map(function (z) { return z.name; }).sort();
+        names.forEach(function (n) {
+            if (size[n] > 1) {
+                print(n + "\t" + size[n] / 1024 / 1024 / 1024 + "GB");
+            } else {
+                print(n + "\t(empty)");
+            }
+        });
+        //db.getMongo().getDBNames().sort().forEach(function (x) { print(x) });
+        return "";
+    }
+
     throw "don't know how to show [" + what + "]";
 
 }

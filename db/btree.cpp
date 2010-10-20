@@ -59,11 +59,17 @@ namespace mongo {
 
     /* BucketBasics --------------------------------------------------- */
 
-    inline void BucketBasics::modified(const DiskLoc& thisLoc) {
-//        VERIFYTHISLOC
-//        btreeStore->modified(thisLoc);
+    string BtreeBucket::bucketSummary() const {
+        stringstream ss;
+        ss << "  Bucket info:" << endl;
+        ss << "    n: " << n << endl;
+        ss << "    parent: " << parent.toString() << endl;
+        ss << "    nextChild: " << parent.toString() << endl;
+        ss << "    flags:" << flags << endl;
+        ss << "    emptySize: " << emptySize << " topSize: " << topSize << endl;
+        return ss.str();
     }
-
+        
     int BucketBasics::Size() const {
         assert( _wasSize == BucketSize );
         return BucketSize;
@@ -88,13 +94,13 @@ namespace mongo {
     int bt_fv=0;
     int bt_dmp=0;
 
-    void BucketBasics::dumpTree(DiskLoc thisLoc, const BSONObj &order) {
+    void BtreeBucket::dumpTree(DiskLoc thisLoc, const BSONObj &order) {
         bt_dmp=1;
         fullValidate(thisLoc, order);
         bt_dmp=0;
     }
 
-    int BucketBasics::fullValidate(const DiskLoc& thisLoc, const BSONObj &order, int *unusedCount) {
+    int BtreeBucket::fullValidate(const DiskLoc& thisLoc, const BSONObj &order, int *unusedCount) {
         {
             bool f = false;
             assert( f = true );
@@ -272,7 +278,7 @@ namespace mongo {
     }
 
     /* add a key.  must be > all existing.  be careful to set next ptr right. */
-    bool BucketBasics::_pushBack(const DiskLoc& recordLoc, BSONObj& key, const Ordering &order, DiskLoc prevChild) {
+    bool BucketBasics::_pushBack(const DiskLoc& recordLoc, const BSONObj& key, const Ordering &order, DiskLoc prevChild) {
         int bytesNeeded = key.objsize() + sizeof(_KeyNode);
         if ( bytesNeeded > emptySize )
             return false;
@@ -357,6 +363,7 @@ namespace mongo {
         assert( emptySize >= 0 );
 
         setPacked();
+        
         assertValid( order );
     }
 
@@ -598,7 +605,6 @@ found:
            it (meaning it is ineligible for reuse).
            */
         memset(this, 0, Size());
-        modified(thisLoc);
 #else
         //defensive:
         n = -1;
@@ -610,7 +616,6 @@ found:
 
     /* note: may delete the entire bucket!  this invalid upon return sometimes. */
     void BtreeBucket::delKeyAtPos(const DiskLoc& thisLoc, IndexDetails& id, int p) {
-        modified(thisLoc);
         assert(n>0);
         DiskLoc left = childForPos(p);
 
@@ -657,7 +662,7 @@ found:
         return b;
     }
 
-    inline void fix(const DiskLoc& thisLoc, const DiskLoc& child) {
+    inline void BtreeBucket::fix(const DiskLoc& thisLoc, const DiskLoc& child) {
         if ( !child.isNull() ) {
             if ( insert_debug )
                 out() << "      " << child.toString() << ".parent=" << thisLoc.toString() << endl;
@@ -738,11 +743,27 @@ found:
         if ( split_debug )
             out() << "    " << thisLoc.toString() << ".split" << endl;
 
-        int split = n / 2;
-        if ( keypos == n ) { // see SERVER-983
-            split = (int) (0.9 * n);
-            if ( split > n - 2 )
-                split = n - 2;
+        // In the standard btree algorithm, we would split based on the
+        // existing keys _and_ the new key.  But that's more work to
+        // implement, so we split the existing keys and then add the new key.
+        
+        assert( n > 2 );
+        int split = 0;
+        int rightSize = 0;
+        // when splitting a btree node, if the new key is greater than all the other keys, we should not do an even split, but a 90/10 split. 
+        // see SERVER-983
+        int rightSizeLimit = topSize / ( keypos == n ? 10 : 2 );
+        for( int i = n - 1; i > -1; --i ) {
+            rightSize += keyNode( i ).key.objsize();
+            if ( rightSize > rightSizeLimit ) {
+                split = i;
+                break;
+            }
+        }
+        if ( split < 1 ) {
+            split = 1;
+        } else if ( split > n - 2 ) {
+            split = n - 2;
         }
 
         DiskLoc rLoc = addBucket(idx);
@@ -767,7 +788,7 @@ found:
             if ( split_debug ) {
                 out() << "    splitkey key:" << splitkey.key.toString() << endl;
             }
-
+            
             // promote splitkey to a parent node
             if ( parent.isNull() ) {
                 // make a new parent if we were the root
@@ -792,11 +813,11 @@ found:
         }
 
         int newpos = keypos;
+        // note this may trash splitkey.key.  thus we had to promote it before finishing up here.
         truncateTo(split, order, newpos);  // note this may trash splitkey.key.  thus we had to promote it before finishing up here.
 
         // add our new key, there is room now
         {
-
             if ( keypos <= split ) {
                 if ( split_debug )
                     out() << "  keypos<split, insertHere() the new key" << endl;
@@ -821,7 +842,6 @@ found:
                                  DiskLoc recordLoc, const BSONObj& key, const Ordering& order,
                                  DiskLoc lchild, DiskLoc rchild, IndexDetails& idx)
     {
-        modified(thisLoc);
         BtreeBucket *b = dur::writing(this);
         b->_insertHere(thisLoc, keypos, recordLoc, key, order, lchild, rchild, idx);
     }

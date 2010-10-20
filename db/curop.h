@@ -124,49 +124,27 @@ namespace mongo {
     };
 
     /* Current operation (for the current Client).
-       an embedded member of Client class, and typically used from within the mutex there. */
+       an embedded member of Client class, and typically used from within the mutex there. 
+    */
     class CurOp : boost::noncopyable {
-        static AtomicUInt _nextOpNum;
-        
-        Client * _client;
-        CurOp * _wrapped;
-
-        unsigned long long _start;
-        unsigned long long _checkpoint;
-        unsigned long long _end;
-
-        bool _active;
-        int _op;
-        bool _command;
-        int _lockType; // see concurrency.h for values
-        bool _waitingForLock;
-        int _dbprofile; // 0=off, 1=slow, 2=all
-        AtomicUInt _opNum;
-        char _ns[Namespace::MaxNsLen+2];
-        struct SockAddr _remote;
-        CachedBSONObj _query;
-        
-        OpDebug _debug;
-        
-        ThreadSafeString _message;
-        ProgressMeter _progressMeter;
-
-        void _reset(){
-            _command = false;
-            _lockType = 0;
-            _dbprofile = 0;
-            _end = 0;
-            _waitingForLock = false;
-            _message = "";
-            _progressMeter.finished();
-        }
-
-        void setNS(const char *ns) {
-            strncpy(_ns, ns, Namespace::MaxNsLen);
-        }
-
     public:
-        
+        CurOp( Client * client , CurOp * wrapped = 0 ) { 
+            _client = client;
+            _wrapped = wrapped;
+            if ( _wrapped ){
+                _client->_curOp = this;
+            }
+            _start = _checkpoint = 0;
+            _active = false;
+            _reset();
+            _op = 0;
+            // These addresses should never be written to again.  The zeroes are
+            // placed here as a precaution because currentOp may be accessed
+            // without the db mutex.
+            memset(_ns, 0, sizeof(_ns));
+        }
+        ~CurOp();
+
         bool haveQuery() const { return _query.have(); }
         BSONObj query( bool threadSafe = false ){ return _query.get( threadSafe );  }
 
@@ -203,9 +181,7 @@ namespace mongo {
             _op = op;
         }
         
-        void markCommand(){
-            _command = true;
-        }
+        void markCommand() { _command = true; }
 
         void waitingForLock( int type ){
             _waitingForLock = true;
@@ -214,21 +190,10 @@ namespace mongo {
             else
                 _lockType = -1;
         }
-        void gotLock(){
-            _waitingForLock = false;
-        }
-
-        OpDebug& debug(){
-            return _debug;
-        }
-        
-        int profileLevel() const {
-            return _dbprofile;
-        }
-
-        const char * getNS() const {
-            return _ns;
-        }
+        void gotLock()             { _waitingForLock = false; }
+        OpDebug& debug()           { return _debug; }        
+        int profileLevel() const   { return _dbprofile; }
+        const char * getNS() const { return _ns; }
 
         bool shouldDBProfile( int ms ) const {
             if ( _dbprofile <= 0 )
@@ -245,8 +210,7 @@ namespace mongo {
         int getLockType() const { return _lockType; }
         bool isWaitingForLock() const { return _waitingForLock; } 
         int getOp() const { return _op; }
-        
-        
+                
         /** micros */
         unsigned long long startTime() {
             ensureStarted();
@@ -263,44 +227,18 @@ namespace mongo {
             return _end - startTime();
         }
 
-        int totalTimeMillis() {
-            return (int) (totalTimeMicros() / 1000);
-        }
+        int totalTimeMillis() { return (int) (totalTimeMicros() / 1000); }
 
         int elapsedMillis() {
             unsigned long long total = curTimeMicros64() - startTime();
             return (int) (total / 1000);
         }
 
-        int elapsedSeconds() {
-            return elapsedMillis() / 1000;
-        }
+        int elapsedSeconds() { return elapsedMillis() / 1000; }
 
-        void setQuery(const BSONObj& query) { 
-            _query.set( query ); 
-        }
+        void setQuery(const BSONObj& query) { _query.set( query ); }
 
-        Client * getClient() const { 
-            return _client;
-        }
-
-        CurOp( Client * client , CurOp * wrapped = 0 ) { 
-            _client = client;
-            _wrapped = wrapped;
-            if ( _wrapped ){
-                _client->_curOp = this;
-            }
-            _start = _checkpoint = 0;
-            _active = false;
-            _reset();
-            _op = 0;
-            // These addresses should never be written to again.  The zeroes are
-            // placed here as a precaution because currentOp may be accessed
-            // without the db mutex.
-            memset(_ns, 0, sizeof(_ns));
-        }
-        
-        ~CurOp();
+        Client * getClient() const { return _client; }
 
         BSONObj info() { 
             if( ! cc().getAuthenticationInfo()->isAuthorized("admin") ) { 
@@ -313,12 +251,9 @@ namespace mongo {
         
         BSONObj infoNoauth();
 
-        string getRemoteString( bool includePort = true ){
-            return _remote.toString(includePort);
-        }
+        string getRemoteString( bool includePort = true ) { return _remote.toString(includePort); }
 
-        ProgressMeter& setMessage( const char * msg , long long progressMeterTotal = 0 , int secondsBetween = 3 ){
-
+        ProgressMeter& setMessage( const char * msg , long long progressMeterTotal = 0 , int secondsBetween = 3 ) {
             if ( progressMeterTotal ){
                 if ( _progressMeter.isActive() ){
                     cout << "about to assert, old _message: " << _message << " new message:" << msg << endl;
@@ -337,54 +272,111 @@ namespace mongo {
         
         string getMessage() const { return _message.toString(); }
         ProgressMeter& getProgressMeter() { return _progressMeter; }
-
+        CurOp *parent() const { return _wrapped; }
+        void kill() { _killed = true; }
+        bool killed() const { return _killed; }
+        void setNS(const char *ns) { 
+            strncpy(_ns, ns, Namespace::MaxNsLen); 
+            _ns[Namespace::MaxNsLen] = 0;
+        }
         friend class Client;
+
+    private:
+        static AtomicUInt _nextOpNum;
+        Client * _client;
+        CurOp * _wrapped;
+        unsigned long long _start;
+        unsigned long long _checkpoint;
+        unsigned long long _end;
+        bool _active;
+        int _op;
+        bool _command;
+        int _lockType; // see concurrency.h for values
+        bool _waitingForLock;
+        int _dbprofile; // 0=off, 1=slow, 2=all
+        AtomicUInt _opNum;
+        char _ns[Namespace::MaxNsLen+2];
+        struct SockAddr _remote;
+        CachedBSONObj _query;
+        OpDebug _debug;
+        ThreadSafeString _message;
+        ProgressMeter _progressMeter;
+        volatile bool _killed;
+
+        void _reset(){
+            _command = false;
+            _lockType = 0;
+            _dbprofile = 0;
+            _end = 0;
+            _waitingForLock = false;
+            _message = "";
+            _progressMeter.finished();
+            _killed = false;
+        }
     };
 
-    /* 0 = ok
-       1 = kill current operation and reset this to 0
-       future: maybe use this as a "going away" thing on process termination with a higher flag value 
+    /* _globalKill: we are shutting down
+       otherwise kill attribute set on specified CurOp
+       this class does not handle races between interruptJs and the checkForInterrupt functions - those must be
+       handled by the client of this class
     */
     extern class KillCurrentOp { 
-        enum { Off, On, All } state;
-        AtomicUInt toKill;
+        volatile bool _globalKill;
     public:
-        // the kill functions are not called with a mutex
-        void killAll() { state = All; interruptJs( 0 ); }
-        void kill(AtomicUInt i) { toKill = i; state = On; interruptJs( &i ); }
+        void killAll() {
+            _globalKill = true;
+            interruptJs( 0 );
+        }
+        void kill(AtomicUInt i) {
+            bool found = false;
+            {
+                scoped_lock l( Client::clientsMutex );
+                for( set< Client* >::const_iterator j = Client::clients.begin(); !found && j != Client::clients.end(); ++j ) {
+                    for( CurOp *k = ( *j )->curop(); !found && k; k = k->parent() ) {
+                        if ( k->opNum() == i ) {
+                            k->kill();
+                            for( CurOp *l = ( *j )->curop(); l != k; l = l->parent() ) {
+                                l->kill();
+                            }
+                            found = true;
+                        }                        
+                    }
+                }
+            }
+            if ( found ) {
+                interruptJs( &i );
+            }
+        }
+
+        /** @return true if global interrupt and should terminate the operation */
+        bool globalInterruptCheck() const { return _globalKill; }
         
-        // this is called without a mutex also, which means we can miss some
-        // kill requests; it's no worse than what the code was doing before,
-        // though, so I don't feel too bad about adding this function.
-        // hopefully we will have time for SERVER-1816 to fix this
-        void finishOp() {
-            if( state == On && cc().curop()->opNum() == toKill ) { 
-                state = Off;
+        void checkForInterrupt( bool heedMutex = true ) {
+            if ( heedMutex && dbMutex.isWriteLocked() ) {
+                return;
+            }
+            if( _globalKill ) {
+                uasserted(11600,"interrupted at shutdown");
+            }
+            if( cc().curop()->killed() ) { 
+                uasserted(11601,"interrupted");
             }
         }
         
-        void checkForInterrupt() { 
-            if( state != Off ) { 
-                if( state == All ) {
-                    uasserted(11600,"interrupted at shutdown");
-                }
-                if( cc().curop()->opNum() == toKill ) { 
-                    uasserted(11601,"interrupted");
-                }
+        const char *checkForInterruptNoAssert( bool heedMutex = true ) {
+            if ( heedMutex && dbMutex.isWriteLocked() ) {
+                return "";
             }
-        }
-        
-        const char *checkForInterruptNoAssert() {
-            if( state != Off ) { 
-                if( state == All ) 
-                    return "interrupted at shutdown";
-                if( cc().curop()->opNum() == toKill ) { 
-                    return "interrupted";
-                }
+            if( _globalKill ) {
+                return "interrupted at shutdown";
+            }
+            if( cc().curop()->killed() ) { 
+                return "interrupted";
             }
             return "";
         }
         
+    private:
         void interruptJs( AtomicUInt *op ) {
             if ( !globalScriptEngine ) {
                 return;

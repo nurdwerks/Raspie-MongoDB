@@ -990,8 +990,13 @@ SyncCCTest.prototype.tempStart = function( num ){
 }
 
 
-function startParallelShell( jsCode ){
-    var x = startMongoProgramNoConnect( "mongo" , "--eval" , jsCode , db ? db.getMongo().host : null );
+function startParallelShell( jsCode, port ){
+    var x;
+    if ( port ) {
+        x = startMongoProgramNoConnect( "mongo" , "--port" , port , "--eval" , jsCode );
+    } else {
+        x = startMongoProgramNoConnect( "mongo" , "--eval" , jsCode , db ? db.getMongo().host : null );        
+    }
     return function(){
         waitProgram( x );
     };
@@ -1330,7 +1335,7 @@ ReplSetTest.prototype.awaitReplication = function() {
                var entry = log.find({}).sort({'$natural': -1}).limit(1).next();
                printjson( entry );
                var ts = entry['ts'];
-               print("TS for " + slave + " is " + ts + " and latest is " + latest);
+               print("TS for " + slave + " is " + ts.t + " and latest is " + latest.t);
                print("Oplog size for " + slave + " is " + log.count());
                synced = (synced && friendlyEqual(latest,ts))
              }

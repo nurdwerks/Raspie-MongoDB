@@ -19,7 +19,7 @@
 #include "pch.h"
 #include "pdfile.h"
 #include "db.h"
-#include "../util/mmap.h"
+#include "mongommf.h"
 #include "../util/hashtab.h"
 #include "../scripting/engine.h"
 #include "btree.h"
@@ -102,12 +102,17 @@ namespace mongo {
             return;
         }
 
-        assertInWriteLock();
-        if( backgroundIndexBuildInProgress ) { 
-            log() << "backgroundIndexBuildInProgress was " << backgroundIndexBuildInProgress << " for " << k << ", indicating an abnormal db shutdown" << endl;
-            backgroundIndexBuildInProgress = 0;
+        DEV assertInWriteLock();
+
+        if( backgroundIndexBuildInProgress || capped2.cc2_ptr ) {
+            assertInWriteLock();
+            NamespaceDetails *d = (NamespaceDetails *) MongoMMF::_switchToWritableView(this);
+            if( backgroundIndexBuildInProgress ) { 
+                log() << "backgroundIndexBuildInProgress was " << backgroundIndexBuildInProgress << " for " << k << ", indicating an abnormal db shutdown" << endl;
+                d->backgroundIndexBuildInProgress = 0;
+            }
+            d->capped2.cc2_ptr = 0;
         }
-        capped2.cc2_ptr = 0;
     }
 
     static void namespaceOnLoadCallback(const Namespace& k, NamespaceDetails& v) { 
@@ -135,7 +140,7 @@ namespace mongo {
         string pathString = nsPath.string();
         MoveableBuffer p;
         if( MMF::exists(nsPath) ) {
-            if( f.open(pathString) ) {
+            if( f.open(pathString, true) ) {
                 len = f.length();
                 if ( len % (1024*1024) != 0 ){
                     log() << "bad .ns file: " << pathString << endl;
@@ -149,7 +154,7 @@ namespace mongo {
 			massert( 10343, "bad lenForNewNsFiles", lenForNewNsFiles >= 1024*1024 );
             maybeMkdir();
 			unsigned long long l = lenForNewNsFiles;
-            if( f.create(pathString, l) ) {
+            if( f.create(pathString, l, true) ) {
                 len = l;
                 assert( len == lenForNewNsFiles );
                 p = f.getView();
@@ -598,8 +603,10 @@ namespace mongo {
     }
 
     void renameNamespace( const char *from, const char *to ) {
-		NamespaceIndex *ni = nsindex( from );
-		assert( ni && ni->details( from ) && !ni->details( to ) );
+        NamespaceIndex *ni = nsindex( from );
+		assert( ni );
+        assert( ni->details( from ) );
+        assert( ! ni->details( to ) );
 		
 		// Our namespace and index details will move to a different 
 		// memory location.  The only references to namespace and 

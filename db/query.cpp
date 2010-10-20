@@ -149,7 +149,7 @@ namespace mongo {
 
         int best = 0;
         shared_ptr< MultiCursor::CursorOp > opPtr( new DeleteOp( justOneOrig, best ) );
-        shared_ptr< MultiCursor > creal( new MultiCursor( ns, pattern, BSONObj(), opPtr, true ) );
+        shared_ptr< MultiCursor > creal( new MultiCursor( ns, pattern, BSONObj(), opPtr, !god ) );
         
         if( !creal->ok() )
             return nDeleted;
@@ -280,7 +280,7 @@ namespace mongo {
         int bufSize = 512;
         if ( cc ){
             bufSize += sizeof( QueryResult );
-            bufSize += ( ntoreturn ? 4 : 1 ) * 1024 * 1024;
+            bufSize += ntoreturn ? MaxBytesToReturnToClientAtOnce : MaxBytesToReturnToClientAtOnce / 4;
         }
 
         BufBuilder b( bufSize );

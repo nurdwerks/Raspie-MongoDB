@@ -144,7 +144,7 @@ namespace mongo {
     public:
         ReplSetHealthPollTask(const HostAndPort& hh, const HeartbeatInfo& mm) : h(hh), m(mm) { }
 
-        string name() { return "ReplSetHealthPollTask"; }
+        string name() const { return "ReplSetHealthPollTask"; }
         void doWork() { 
             if ( !theReplSet ) {
                 log(2) << "theReplSet not initialized yet, skipping health poll this round" << rsLog;
@@ -171,7 +171,9 @@ namespace mongo {
                         mem.skew = (int) (t - before); // negative
                 }
                 else {
-                    warning() << "heatbeat.time isn't a number: " << info << endl;
+                    // it won't be there if remote hasn't initialized yet
+                    if( info.hasElement("time") )
+                        warning() << "heatbeat.time isn't a number: " << info << endl;
                     mem.skew = INT_MIN;
                 }
 
