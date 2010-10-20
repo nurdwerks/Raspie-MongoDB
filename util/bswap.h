@@ -167,11 +167,11 @@ namespace mongo {
 #pragma pack()
   
   // Helper functions which will replace readLE. Can be used as pointers as well
-  template<class T> const typename packedLE<T>::t& refLE( const char* data ) {
+  template<class T> const typename packedLE<T>::t& refLE( const void* data ) {
      return *reinterpret_cast<const typename packedLE<T>::t*>( data );
   }
   
-  template<class T> typename packedLE<T>::t& refLE( char* data ) {
+  template<class T> typename packedLE<T>::t& refLE( void* data ) {
      return *reinterpret_cast<typename packedLE<T>::t*>( data );
   }
 

@@ -190,7 +190,7 @@ namespace mongo {
     }
 
     void CursorCache::gotKillCursors(Message& m ){
-        int *x = (int *) m.singleData()->_data;
+        packedLE<int> *x = &refLE<int>( m.singleData()->_data );
         x++; // reserved
         int n = *x++;
 

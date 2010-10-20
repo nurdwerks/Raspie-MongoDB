@@ -368,7 +368,7 @@ namespace mongo {
 
         while ( read < fileLength ) {
             int readlen = fread(buf, 4, 1, file);
-            int size = ((int*)buf)[0];
+            int size = refLE<int>( buf );
             if ( size >= BUF_SIZE ){
                 cerr << "got an object of size: " << size << "  terminating..." << endl;
             }
