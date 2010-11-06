@@ -653,7 +653,8 @@ if ( typeof _threadInject != "undefined" ){
                                    "jstests/evalb.js",
                                    "jstests/evald.js",
                                    "jstests/evalf.js",
-                                   "jstests/killop.js"] );
+				    "jstests/killop.js",
+				    "jstests/run_program1.js"] );
         
         // some tests can't be run in parallel with each other
         var serialTestsArr = [ "jstests/fsync.js",
@@ -1276,16 +1277,19 @@ rs.help = function () {
     print("\trs.initiate()                   { replSetInitiate : null } initiates set with default settings");
     print("\trs.initiate(cfg)                { replSetInitiate : cfg } initiates set with configuration cfg");
     print("\trs.conf()                       get the current configuration object from local.system.replset");
-    print("\trs.reconfig(cfg)                updates the configuration of a running replica set with cfg");
-    print("\trs.add(hostportstr)             add a new member to the set with default attributes");
-    print("\trs.add(membercfgobj)            add a new member to the set with extra attributes");
-    print("\trs.addArb(hostportstr)          add a new member which is arbiterOnly:true");
-    print("\trs.stepDown()                   step down as primary (momentarily)");
-    print("\trs.remove(hostportstr)          remove a host from the replica set");
+    print("\trs.reconfig(cfg)                updates the configuration of a running replica set with cfg (disconnects)");
+    print("\trs.add(hostportstr)             add a new member to the set with default attributes (disconnects)");
+    print("\trs.add(membercfgobj)            add a new member to the set with extra attributes (disconnects)");
+    print("\trs.addArb(hostportstr)          add a new member which is arbiterOnly:true (disconnects)");
+    print("\trs.stepDown([secs])             step down as primary (momentarily) (disconnects)");
+    print("\trs.freeze(secs)                 make a node ineligible to become primary for the time specified");
+    print("\trs.remove(hostportstr)          remove a host from the replica set (disconnects)");
     print("\trs.slaveOk()                    shorthand for db.getMongo().setSlaveOk()");
     print();
     print("\tdb.isMaster()                   check who is primary");
     print();
+    print("\treconfiguration helpers disconnect from the database so the shell will display");
+    print("\tan error, even if the command succeeds.");
     print("\tsee also http://<mongod_host>:28017/_replSet for additional diagnostic info");
 }
 rs.slaveOk = function () { return db.getMongo().setSlaveOk(); }
@@ -1318,7 +1322,8 @@ rs.add = function (hostport, arb) {
     c.members.push(cfg);
     return db._adminCommand({ replSetReconfig: c });
 }
-rs.stepDown = function () { return db._adminCommand({ replSetStepDown:true}); }
+rs.stepDown = function (secs) { return db._adminCommand({ replSetStepDown:secs||60}); }
+rs.freeze = function (secs) { return db._adminCommand({replSetFreeze:secs}); }
 rs.addArb = function (hn) { return this.add(hn, true); }
 rs.conf = function () { return db.getSisterDB("local").system.replset.findOne(); }
 

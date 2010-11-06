@@ -19,13 +19,13 @@
 #pragma once
 
 #include "../pch.h"
-#include "../client/dbclient.h"
-#include "../client/model.h"
-#include "../client/distlock.h"
+
 #include "../bson/util/atomic_int.h"
+#include "../client/dbclient.h"
+#include "../client/distlock.h"
+
 #include "shardkey.h"
 #include "shard.h"
-#include "config.h"
 #include "util.h"
 
 namespace mongo {
@@ -43,6 +43,8 @@ namespace mongo {
     typedef map<BSONObj,ChunkPtr,BSONObjCmp> ChunkMap;
     typedef map<BSONObj,shared_ptr<ChunkRange>,BSONObjCmp> ChunkRangeMap;
     
+    typedef shared_ptr<ChunkManager> ChunkManagerPtr;
+
     /**
        config.chunks
        { ns : "alleyinsider.fs.chunks" , min : {} , max : {} , server : "localhost:30001" }
@@ -54,7 +56,18 @@ namespace mongo {
     public:
         Chunk( ChunkManager * info );
         Chunk( ChunkManager * info , const BSONObj& min, const BSONObj& max, const Shard& shard);
+
+        //
+        // serialization support
+        //
+
+        void serialize(BSONObjBuilder& to, ShardChunkVersion myLastMod=0);
+        void unserialize(const BSONObj& from);
         
+        //
+        // chunk boundary support
+        //
+
         const BSONObj& getMin() const { return _min; }
         const BSONObj& getMax() const { return _max; }
         void setMin(const BSONObj& o) { _min = o; }
@@ -66,28 +79,14 @@ namespace mongo {
 
         bool contains( const BSONObj& obj ) const;
 
-        string toString() const;
-        friend ostream& operator << (ostream& out, const Chunk& c){ return (out << c.toString()); }
-        bool operator==(const Chunk& s) const;
-        bool operator!=(const Chunk& s) const { return ! ( *this == s ); }
-        
-        string getns() const;
-        const char * getNS() { return "config.chunks"; }
-        Shard getShard() const { return _shard; }
-        const ChunkManager* getManager() const { return _manager; }
-
-        void serialize(BSONObjBuilder& to, ShardChunkVersion myLastMod=0);
-        void unserialize(const BSONObj& from);
-        string modelServer() const;
-        
-        void appendShortVersion( const char * name , BSONObjBuilder& b );
-        ShardChunkVersion getVersionOnConfigServer() const;
-
         string genID() const;
         static string genID( const string& ns , const BSONObj& min );
 
-        bool getModified() { return _modified; }
-        void setModified( bool modified ) { _modified = modified; }
+        //
+        // chunk version support
+        // 
+
+        void appendShortVersion( const char * name , BSONObjBuilder& b );
 
         ShardChunkVersion getLastmod() const { return _lastmod; }
         void setLastmod( ShardChunkVersion v ) { _lastmod = v; }
@@ -95,13 +94,6 @@ namespace mongo {
         //
         // split support
         //
-
-        /**
-         * @param a vector of possible split points
-         *        used as a hint only
-         */
-        BSONObj pickSplitPoint_DEPRECATED( const vector<BSONObj> * possibleSplitPoints = 0 ) const;
-        ChunkPtr split_DEPRECATED();
 
         /**
          * if the amount of data written nears the max size of a shard
@@ -116,15 +108,15 @@ namespace mongo {
          *              if set to false, will only split if the chunk has reached the currently desired maximum size
          * @return if found a key, return a pointer to the first chunk, otherwise return a null pointer
          */
-        ChunkPtr simpleSplit( bool force );
+        ChunkPtr singleSplit( bool force );
 
         /**
-         * Splits this chunk at at the given keys
+         * Splits this chunk at the given key (or keys)
          *
          * @param splitPoints the vector of keys that should be used to divide this chunk
          * @return shared pointer to the first new Chunk
          */
-        ChunkPtr multiSplit( const vector<BSONObj>& splitPoints );
+        ChunkPtr multiSplit( const  vector<BSONObj>& splitPoints );
 
         /**
          * Asks the mongod holding this chunk to find a key that approximately divides this chunk in two
@@ -141,14 +133,10 @@ namespace mongo {
          */
         void pickSplitVector( vector<BSONObj>& splitPoints , int chunkSize , int maxPoints = 0, int maxObjs = 0) const;
 
-        /**
-         * @return size of shard in bytes
-         *  talks to mongod to do this
-         */
-        long getPhysicalSize() const;
-        
-        int countObjects(int maxcount=0) const;
-        
+        //
+        // migration support
+        // 
+
         /**
          * moves either this shard or newShard if it makes sense too
          *
@@ -158,7 +146,38 @@ namespace mongo {
 
         bool moveAndCommit( const Shard& to , BSONObj& res );
 
+        /**
+         * @return size of shard in bytes
+         *  talks to mongod to do this
+         */
+        long getPhysicalSize() const;
+
+        //
+        // chunk size support
+        
+        int countObjects(int maxcount=0) const;
+        
+        //
+        // public constants 
+        //
+
+        static string chunkMetadataNS;    
         static int MaxChunkSize;
+
+        //
+        // accessors and helpers
+        //
+
+        string toString() const;
+
+        friend ostream& operator << (ostream& out, const Chunk& c){ return (out << c.toString()); }
+        bool operator==(const Chunk& s) const;
+        bool operator!=(const Chunk& s) const { return ! ( *this == s ); }
+        
+        string getns() const;
+        const char * getNS() { return "config.chunks"; }
+        Shard getShard() const { return _shard; }
+        const ChunkManager* getManager() const { return _manager; }
 
     private:
         // main shard info
@@ -170,12 +189,10 @@ namespace mongo {
         Shard _shard;
         ShardChunkVersion _lastmod;
 
-        bool _modified;
-        
         // transient stuff
 
         long _dataWritten;
-        
+
         // methods, etc..
         
         /**
@@ -269,7 +286,7 @@ namespace mongo {
     class ChunkManager {
     public:
 
-        ChunkManager( DBConfig * config , string ns , ShardKeyPattern pattern , bool unique );
+        ChunkManager( string ns , ShardKeyPattern pattern , bool unique );
         virtual ~ChunkManager();
 
         string getns() const { return _ns; }
@@ -277,7 +294,7 @@ namespace mongo {
         int numChunks() const { rwlock lk( _lock , false ); return _chunkMap.size(); }
         bool hasShardKey( const BSONObj& obj );
 
-        void createFirstChunk();
+        void createFirstChunk( const Shard& shard );
         ChunkPtr findChunk( const BSONObj& obj , bool retry = false );
         ChunkPtr findChunkOnServer( const Shard& shard ) const;
         
@@ -290,19 +307,11 @@ namespace mongo {
         void getAllShards( set<Shard>& all );
         void getShardsForRange(set<Shard>& shards, const BSONObj& min, const BSONObj& max); // [min, max)
 
-        void save( bool major );
-
         string toString() const;
 
         ShardChunkVersion getVersion( const Shard& shard ) const;
         ShardChunkVersion getVersion() const;
 
-        /** 
-         * actually does a query on the server
-         * doesn't look at any local data
-         */
-        ShardChunkVersion getVersionOnConfigServer() const;
-        
         /**
          * this is just an increasing number of how many ChunkManagers we have so we know if something has been updated
          */
@@ -321,23 +330,18 @@ namespace mongo {
         void _printChunks() const;
         
         int getCurrentDesiredChunkSize() const;
-    private:
-        
+
+    private:        
         void _reload();
         void _reload_inlock();
         void _load();
 
-        void save_inlock( bool major );
-        ShardChunkVersion getVersion_inlock() const;
         void ensureIndex_inlock();
         
-        DBConfig * _config;
         string _ns;
         ShardKeyPattern _key;
         bool _unique;
         
-        map<string,unsigned long long> _maxMarkers;
-
         ChunkMap _chunkMap;
         ChunkRangeManager _chunkRanges;
 
@@ -347,9 +351,6 @@ namespace mongo {
         
         mutable RWLock _lock;
         DistributedLock _nsLock;
-
-        // This should only be called from Chunk after it has been migrated
-        void _migrationNotification(Chunk* c);
 
         friend class Chunk;
         friend class ChunkRangeManager; // only needed for CRM::assertValid()

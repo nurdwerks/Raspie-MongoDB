@@ -30,7 +30,7 @@
 #include "replpair.h"
 #include "scanandorder.h"
 #include "security.h"
-#include "curop.h"
+#include "curop-inl.h"
 #include "commands.h"
 #include "queryoptimizer.h"
 #include "lasterror.h"
@@ -158,17 +158,18 @@ namespace mongo {
         auto_ptr<ClientCursor> cc( new ClientCursor( QueryOption_NoCursorTimeout, cPtr, ns) );
         cc->setDoingDeletes( true );
             
-        CursorId id = cc->cursorid;
+        CursorId id = cc->cursorid();
             
         bool justOne = justOneOrig;
         bool canYield = !god && !creal->matcher()->docMatcher().atomic();
+
         do {
             if ( canYield && ! cc->yieldSometimes() ){
                 cc.release(); // has already been deleted elsewhere
                 // TODO should we assert or something?
                 break;
             }
-            if ( !cc->c->ok() ) {
+            if ( !cc->ok() ) {
                 break; // if we yielded, could have hit the end
             }
                 
@@ -176,26 +177,26 @@ namespace mongo {
             // as well as some other nuances handled
             cc->setDoingDeletes( true );
                 
-            DiskLoc rloc = cc->c->currLoc();
-            BSONObj key = cc->c->currKey();
+            DiskLoc rloc = cc->currLoc();
+            BSONObj key = cc->currKey();
 
             // NOTE Calling advance() may change the matcher, so it's important 
             // to try to match first.
             bool match = creal->matcher()->matches( key , rloc );
             
-            if ( ! cc->c->advance() )
+            if ( ! cc->advance() )
                 justOne = true;
                 
             if ( ! match )
                 continue;
                             
-            assert( !cc->c->getsetdup(rloc) ); // can't be a dup, we deleted it!
+            assert( !cc->c()->getsetdup(rloc) ); // can't be a dup, we deleted it!
                 
             if ( !justOne ) {
                 /* NOTE: this is SLOW.  this is not good, noteLocation() was designed to be called across getMore
                     blocks.  here we might call millions of times which would be bad.
                     */
-                cc->c->noteLocation();
+                cc->c()->noteLocation();
             }
                 
             if ( logop ) {
@@ -218,9 +219,9 @@ namespace mongo {
             if ( justOne ) {
                 break;
             }
-            cc->c->checkLocation();
+            cc->c()->checkLocation();
                 
-        } while ( cc->c->ok() );
+        } while ( cc->ok() );
 
         if ( cc.get() && ClientCursor::find( id , false ) == 0 ){
             cc.release();
@@ -280,7 +281,7 @@ namespace mongo {
         int bufSize = 512;
         if ( cc ){
             bufSize += sizeof( QueryResult );
-            bufSize += ntoreturn ? MaxBytesToReturnToClientAtOnce : MaxBytesToReturnToClientAtOnce / 4;
+            bufSize += MaxBytesToReturnToClientAtOnce;
         }
 
         BufBuilder b( bufSize );
@@ -300,15 +301,15 @@ namespace mongo {
             if ( pass == 0 )
                 cc->updateSlaveLocation( curop );
 
-            int queryOptions = cc->_queryOptions;
+            int queryOptions = cc->queryOptions();
 
             if( pass == 0 ) {
                 StringBuilder& ss = curop.debug().str;
-                ss << " getMore: " << cc->query.toString() << " ";
+                ss << " getMore: " << cc->query().toString() << " ";
             }
             
-            start = cc->pos;
-            Cursor *c = cc->c.get();
+            start = cc->pos();
+            Cursor *c = cc->c();
             c->checkLocation();
             DiskLoc last;
 
@@ -355,10 +356,9 @@ namespace mongo {
                         // show disk loc should be part of the main query, not in an $or clause, so this should be ok
                         fillQueryResultFromObj(b, cc->fields.get(), js, ( cc->pq.get() && cc->pq->showDiskLoc() ? &last : 0));
                         n++;
-                        if ( (ntoreturn>0 && (n >= ntoreturn || b.len() > MaxBytesToReturnToClientAtOnce)) ||
-                             (ntoreturn==0 && b.len()>1*1024*1024) ) {
+                        if ( ( ntoreturn && n >= ntoreturn ) || b.len() > MaxBytesToReturnToClientAtOnce ){
                             c->advance();
-                            cc->pos += n;
+                            cc->incPos( n );
                             break;
                         }
                     }
@@ -370,7 +370,7 @@ namespace mongo {
                 cc->updateLocation();
                 cc->mayUpgradeStorage();
                 cc->storeOpForSlave( last );
-                exhaust = cc->_queryOptions & QueryOption_Exhaust;
+                exhaust = cc->queryOptions() & QueryOption_Exhaust;
             }
         }
 
@@ -389,60 +389,65 @@ namespace mongo {
     class CountOp : public QueryOp {
     public:
         CountOp( const string& ns , const BSONObj &spec ) :
-            _ns(ns), count_(), _myCount(),
-            skip_( spec["skip"].numberLong() ),
-            limit_( spec["limit"].numberLong() ),
-            bc_(){
+            _ns(ns), _capped(false), _count(), _myCount(),
+            _skip( spec["skip"].numberLong() ),
+            _limit( spec["limit"].numberLong() ),
+            _bc(){
         }
         
         virtual void _init() {
-            c_ = qp().newCursor();
-            
+            _c = qp().newCursor();
+            _capped = _c->capped();
             if ( qp().exactKeyMatch() && ! matcher()->needRecord() ) {
-                query_ = qp().simplifiedQuery( qp().indexKey() );
-                bc_ = dynamic_cast< BtreeCursor* >( c_.get() );
-                bc_->forgetEndKey();
+                _query = qp().simplifiedQuery( qp().indexKey() );
+                _bc = dynamic_cast< BtreeCursor* >( _c.get() );
+                _bc->forgetEndKey();
             }
         }
 
         virtual long long nscanned() {
-            assert( c_.get() );
-            return c_->nscanned();
+            assert( _c.get() );
+            return _c->nscanned();
         }
         
         virtual bool prepareToYield() {
             if ( ! _cc ) {
-                _cc.reset( new ClientCursor( QueryOption_NoCursorTimeout , c_ , _ns.c_str() ) );
+                _cc.reset( new ClientCursor( QueryOption_NoCursorTimeout , _c , _ns.c_str() ) );
             }
             return _cc->prepareToYield( _yieldData );
         }
         
         virtual void recoverFromYield() {
             if ( !ClientCursor::recoverFromYield( _yieldData ) ) {
-                c_.reset();
+                _c.reset();
                 _cc.reset();
-                massert( 13337, "cursor dropped during count", false );
-                // TODO maybe we want to prevent recording the winning plan as well?
+
+                if ( _capped ){
+                    msgassertedNoTrace( 13337, str::stream() << "capped cursor overrun during count: " << _ns );
+                }
+                else {
+                    // we don't fail query since we're fine with returning partial data if collection dropped
+                }
             }
         }
         
         virtual void next() {
-            if ( !c_->ok() ) {
+            if ( ! _c || !_c->ok() ) {
                 setComplete();
                 return;
             }
 
-            if ( bc_ ) {
-                if ( firstMatch_.isEmpty() ) {
-                    firstMatch_ = bc_->currKeyNode().key;
+            if ( _bc ) {
+                if ( _firstMatch.isEmpty() ) {
+                    _firstMatch = _bc->currKeyNode().key.copy();
                     // if not match
-                    if ( query_.woCompare( firstMatch_, BSONObj(), false ) ) {
+                    if ( _query.woCompare( _firstMatch, BSONObj(), false ) ) {
                         setComplete();
                         return;
                     }
                     _gotOne();
                 } else {
-                    if ( !firstMatch_.woEqual( bc_->currKeyNode().key ) ) {
+                    if ( ! _firstMatch.woEqual( _bc->currKeyNode().key ) ) {
                         setComplete();
                         return;
                     }
@@ -450,52 +455,53 @@ namespace mongo {
                 }
             } 
             else {
-                if ( !matcher()->matches(c_->currKey(), c_->currLoc() ) ) {
+                if ( !matcher()->matches(_c->currKey(), _c->currLoc() ) ) {
                 }
-                else if( !c_->getsetdup(c_->currLoc()) ) {
+                else if( !_c->getsetdup(_c->currLoc()) ) {
                     _gotOne();
                 }                
             }
-            c_->advance();
+            _c->advance();
         }
         virtual QueryOp *_createChild() const {
             CountOp *ret = new CountOp( _ns , BSONObj() );
-            ret->count_ = count_;
-            ret->skip_ = skip_;
-            ret->limit_ = limit_;
+            ret->_count = _count;
+            ret->_skip = _skip;
+            ret->_limit = _limit;
             return ret;
         }
-        long long count() const { return count_; }
+        long long count() const { return _count; }
         virtual bool mayRecordPlan() const {
-            return ( _myCount > limit_ / 2 ) || ( complete() && !stopRequested() );
+            return ( _myCount > _limit / 2 ) || ( complete() && !stopRequested() );
         }
     private:
         
         void _gotOne(){
-            if ( skip_ ){
-                skip_--;
+            if ( _skip ){
+                _skip--;
                 return;
             }
             
-            if ( limit_ > 0 && count_ >= limit_ ){
+            if ( _limit > 0 && _count >= _limit ){
                 setStop();
                 return;
             }
 
-            count_++;
+            _count++;
             _myCount++;
         }
 
         string _ns;
-        
-        long long count_;
+        bool _capped;
+
+        long long _count;
         long long _myCount;
-        long long skip_;
-        long long limit_;
-        shared_ptr<Cursor> c_;
-        BSONObj query_;
-        BtreeCursor *bc_;
-        BSONObj firstMatch_;
+        long long _skip;
+        long long _limit;
+        shared_ptr<Cursor> _c;
+        BSONObj _query;
+        BtreeCursor * _bc;
+        BSONObj _firstMatch;
 
         ClientCursor::CleanupPointer _cc;
         ClientCursor::YieldData _yieldData;
@@ -613,6 +619,7 @@ namespace mongo {
             _nChunkSkips(),
             _chunkMatcher(shardingState.getChunkMatcher(pq.ns())),
             _inMemSort(false),
+            _capped(false),
             _saveClientCursor(false),
             _wouldSaveClientCursor(false),
             _oplogReplay( pq.hasOption( QueryOption_OplogReplay) ),
@@ -629,8 +636,10 @@ namespace mongo {
             
             if ( _oplogReplay ) {
                 _findingStartCursor.reset( new FindingStartCursor( qp() ) );
+                _capped = true;
             } else {
                 _c = qp().newCursor( DiskLoc() , _pq.getNumToReturn() + _pq.getSkip() );
+                _capped = _c->capped();
             }
 
             if ( qp().scanAndOrderRequired() ) {
@@ -641,6 +650,7 @@ namespace mongo {
             if ( _pq.isExplain() ) {
                 _eb.noteCursor( _c.get() );
             }
+
         }
         
         virtual bool prepareToYield() {
@@ -655,17 +665,23 @@ namespace mongo {
         }
         
         virtual void recoverFromYield() {
-            ++_nYields;
+            _nYields++;
+            
             if ( _findingStartCursor.get() ) {
                 _findingStartCursor->recoverFromYield();
-            } else {
-                if ( !ClientCursor::recoverFromYield( _yieldData ) ) {
-                    _c.reset();
-                    _cc.reset();
-                    _so.reset();
-                    massert( 13338, "cursor dropped during query", false );
-                    // TODO maybe we want to prevent recording the winning plan as well?
-                } 
+            } 
+            else if ( ! ClientCursor::recoverFromYield( _yieldData ) ) {
+                _c.reset();
+                _cc.reset();
+                _so.reset();
+
+                if ( _capped ){
+                    msgassertedNoTrace( 13338, str::stream() << "capped cursor overrun during query: " << _pq.ns() );
+                }
+                else {
+                    // we don't fail query since we're fine with returning partial data if collection dropped
+                }
+
             }
         }
         
@@ -685,10 +701,11 @@ namespace mongo {
                 } else {
                     _findingStartCursor->next();
                 }
+                _capped = true;
                 return;
             }
             
-            if ( !_c->ok() ) {
+            if ( !_c || !_c->ok() ) {
                 finish( false );
                 return;
             }
@@ -855,7 +872,7 @@ namespace mongo {
         
         void finishForOplogReplay( ClientCursor * cc ){
             if ( _oplogReplay && ! _slaveReadTill.isNull() )
-                cc->_slaveReadTill = _slaveReadTill;
+                cc->slaveReadTill( _slaveReadTill );
 
         }
     private:
@@ -884,6 +901,7 @@ namespace mongo {
         ClientCursor::CleanupPointer _cc;
         ClientCursor::YieldData _yieldData;
 
+        bool _capped;
         bool _saveClientCursor;
         bool _wouldSaveClientCursor;
         bool _oplogReplay;
@@ -895,7 +913,9 @@ namespace mongo {
         OpTime _slaveReadTill;
     };
     
-    /* run a query -- includes checking for and running a Command */
+    /* run a query -- includes checking for and running a Command \
+       @return points to ns if exhaust mode. 0=normal mode
+    */
     const char *runQuery(Message& m, QueryMessage& q, CurOp& curop, Message &result) {
         StringBuilder& ss = curop.debug().str;
         shared_ptr<ParsedQuery> pq_shared( new ParsedQuery(q) );
@@ -937,7 +957,10 @@ namespace mongo {
                 qr->nReturned = 1;
                 result.setData( qr.release(), true );
             }
-            return false;
+            else { 
+                uasserted(10000, "bad or malformed command request?");
+            }
+            return 0;
         }
         
         /* --- regular query --- */
@@ -1077,14 +1100,14 @@ namespace mongo {
                 cursor->setMatcher( dqo.matcher() );
                 cc = new ClientCursor( queryOptions, cursor, ns, jsobj.getOwned() );
             }
-            cursorid = cc->cursorid;
+            cursorid = cc->cursorid();
             DEV tlog(2) << "query has more, cursorid: " << cursorid << endl;
-            cc->pos = n;
+            cc->setPos( n );
             cc->pq = pq_shared;
             cc->fields = pq.getFieldPtr();
             cc->originalMessage = m;
             cc->updateLocation();
-            if ( !cc->c->ok() && cc->c->tailable() )
+            if ( !cc->ok() && cc->c()->tailable() )
                 DEV tlog() << "query has no more but tailable, cursorid: " << cursorid << endl;
             if( queryOptions & QueryOption_Exhaust ) {
                 exhaust = ns;

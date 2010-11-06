@@ -208,13 +208,15 @@ namespace mongo {
     class MigrateFromStatus {
     public:
         
-        MigrateFromStatus(){
+        MigrateFromStatus() : _m("MigrateFromStatus") {
             _active = false;
             _inCriticalSection = false;
             _memoryUsed = 0;
         }
 
         void start( string ns , const BSONObj& min , const BSONObj& max ){
+            scoped_lock l(_m); // reads and writes _active
+
             assert( ! _active );
             
             assert( ! min.isEmpty() );
@@ -238,13 +240,14 @@ namespace mongo {
             _reload.clear();
             _cloneLocs.clear();
             _memoryUsed = 0;
-            
+
+            scoped_lock l(_m);
             _active = false;
             _inCriticalSection = false;
         }
         
         void logOp( const char * opstr , const char * ns , const BSONObj& obj , BSONObj * patt ){
-            if ( ! _active )
+            if ( ! _getActive() )
                 return;
 
             if ( _ns != ns )
@@ -330,7 +333,7 @@ namespace mongo {
          * transfers mods from src to dest
          */
         bool transferMods( string& errmsg , BSONObjBuilder& b ){
-            if ( ! _active ){
+            if ( ! _getActive() ){
                 errmsg = "no active migration!";
                 return false;
             }
@@ -372,19 +375,26 @@ namespace mongo {
                 return false;
             }
             
-            BtreeCursor c( d , d->idxNo(*idx) , *idx , min , max , false , 1 );
-            while ( c.ok() ){
-                DiskLoc dl = c.currLoc();
+            scoped_ptr<ClientCursor> cc( new ClientCursor( QueryOption_NoCursorTimeout , 
+                                                           shared_ptr<Cursor>( new BtreeCursor( d , d->idxNo(*idx) , *idx , min , max , false , 1 ) ) ,
+                                                           _ns ) );
+            while ( cc->ok() ){
+                DiskLoc dl = cc->currLoc();
                 _cloneLocs.insert( dl );
-                c.advance();
-                // TODO: should we yield? 
+                cc->advance();
+                
+                if ( ! cc->yieldSometimes() )
+                    break;
+
             }
             
+            log() << "\t moveChunk number of documents: " << _cloneLocs.size() << endl;
+
             return true;
         }
 
         bool clone( string& errmsg , BSONObjBuilder& result ){
-            if ( ! _active ){
+            if ( ! _getActive() ){
                 errmsg = "not active";
                 return false;
             }
@@ -419,7 +429,7 @@ namespace mongo {
         void aboutToDelete( const Database* db , const DiskLoc& dl ){
             dbMutex.assertWriteLocked();
 
-            if ( ! _active )
+            if ( ! _getActive() )
                 return;
             
             if ( ! db->ownsNS( _ns ) )
@@ -430,16 +440,17 @@ namespace mongo {
             
         long long mbUsed() const { return _memoryUsed / ( 1024 * 1024 ); }
 
-        bool _inCriticalSection;
+        bool getInCriticalSection() const { scoped_lock l(_m); return _inCriticalSection; }
+        void setInCriticalSection( bool b ) { scoped_lock l(_m); _inCriticalSection = b; }
 
     private:
-        
+        mutable mongo::mutex _m; // protect _inCriticalSection and _active
+        bool _inCriticalSection;
         bool _active;
 
         string _ns;
         BSONObj _min;
         BSONObj _max;
-
 
         // disk locs yet to be transferred from here to the other side
         // no locking needed because build by 1 thread in a read lock
@@ -450,6 +461,9 @@ namespace mongo {
         list<BSONObj> _reload; // objects that were modified that must be recloned 
         list<BSONObj> _deleted; // objects deleted during clone that should be deleted later
         long long _memoryUsed; // bytes in _reload + _deleted
+
+        bool _getActive() const { scoped_lock l(_m); return _active; }
+        void _setActive( bool b ) { scoped_lock l(_m); _active = b; }
 
     } migrateFromStatus;
     
@@ -707,8 +721,10 @@ namespace mongo {
             // 5.
             { 
                 // 5.a
-                migrateFromStatus._inCriticalSection = true;
-                ShardChunkVersion myVersion = maxVersion;
+                // we're under the collection lock here, so no other migrate can change maxVersion
+                migrateFromStatus.setInCriticalSection( true );
+                ShardChunkVersion currVersion = maxVersion;
+                ShardChunkVersion myVersion = currVersion;
                 myVersion.incMajor();
                 
                 {
@@ -716,9 +732,9 @@ namespace mongo {
                     assert( myVersion > shardingState.getVersion( ns ) );
                     shardingState.setVersion( ns , myVersion );
                     assert( myVersion == shardingState.getVersion( ns ) );
-                    log() << "moveChunk locking myself to: " << myVersion << endl;
                 }
-
+                log() << "moveChunk locking myself to: " << myVersion << endl;
+                    
                 
                 // 5.b
                 {
@@ -730,7 +746,13 @@ namespace mongo {
                     connTo.done();
                     log() << "moveChunk commit result: " << res << endl;
                     if ( ! ok ){
-                        log() << "_recvChunkCommit failed: " << res << endl;
+                        {
+                            dblock lk;
+                            shardingState.setVersion( ns , currVersion );
+                            assert( currVersion == shardingState.getVersion( ns ) );
+                        }
+                        log() << "_recvChunkCommit failed: " << res << " resetting shard version to: " << currVersion << endl;
+
                         errmsg = "_recvChunkCommit failed!";
                         result.append( "cause" , res );
                         return false;
@@ -770,7 +792,7 @@ namespace mongo {
                 }
 
                 conn.done();
-                migrateFromStatus._inCriticalSection = false;
+                migrateFromStatus.setInCriticalSection( false );
 
                 // 5.d
                 configServer.logChange( "moveChunk" , ns , BSON( "min" << min << "max" << max <<
@@ -809,7 +831,7 @@ namespace mongo {
     } moveChunkCmd;
 
     bool ShardingState::inCriticalMigrateSection(){
-        return migrateFromStatus._inCriticalSection;
+        return migrateFromStatus.getInCriticalSection();
     }
 
     /* -----
@@ -828,11 +850,11 @@ namespace mongo {
     class MigrateStatus {
     public:
         
-        MigrateStatus(){
-            active = false;
-        }
+        MigrateStatus() : m_active("MigrateStatus") { active = false; }
 
         void prepare(){
+            scoped_lock l(m_active); // reading and writing 'active'
+
             assert( ! active );
             state = READY;
             errmsg = "";
@@ -859,11 +881,11 @@ namespace mongo {
                 errmsg = "UNKNOWN ERROR";
                 log( LL_ERROR ) << "migrate failed with unknown exception" << endl;
             }
-            active = false;
+            setActive( false );
         }
         
         void _go(){
-            assert( active );
+            assert( getActive() );
             assert( state == READY );
             assert( ! min.isEmpty() );
             assert( ! max.isEmpty() );
@@ -920,12 +942,13 @@ namespace mongo {
                     BSONObj arr = res["objects"].Obj();
                     int thisTime = 0;
 
-                    writelock lk( ns );
-
                     BSONObjIterator i( arr );
                     while( i.more() ){
                         BSONObj o = i.next().Obj();
-                        Helpers::upsert( ns , o );
+                        {
+                            writelock lk( ns );
+                            Helpers::upsert( ns , o );
+                        }
                         thisTime++;
                         numCloned++;
                         clonedBytes += o.objsize();
@@ -1006,7 +1029,7 @@ namespace mongo {
         }
 
         void status( BSONObjBuilder& b ){
-            b.appendBool( "active" , active );
+            b.appendBool( "active" , getActive() );
 
             b.append( "ns" , ns );
             b.append( "from" , from );
@@ -1094,6 +1117,10 @@ namespace mongo {
             errmsg = "aborted";
         }
 
+        bool getActive() const { scoped_lock l(m_active); return active; }
+        void setActive( bool b ) { scoped_lock l(m_active); active = b; }
+
+        mutable mongo::mutex m_active;
         bool active;
         
         string ns;
@@ -1126,7 +1153,7 @@ namespace mongo {
 
         bool run(const string& , BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool){
             
-            if ( migrateStatus.active ){
+            if ( migrateStatus.getActive() ){
                 errmsg = "migrate already in progress";
                 return false;
             }

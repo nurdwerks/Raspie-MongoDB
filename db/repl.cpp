@@ -277,6 +277,7 @@ namespace mongo {
                 result.append("ismaster", false);
                 result.append("secondary", false);
                 result.append("info", ReplSet::startupStatusMsg);
+                result.append( "isreplicaset" , true );
                 return;
             }
             
@@ -334,6 +335,7 @@ namespace mongo {
                 
                 if ( level > 1 ){
                     dbtemprelease unlock;
+                    // note: there is no so-style timeout on this connection; perhaps we should have one.
                     ScopedDbConnection conn( s["host"].valuestr() );
                     DBClientConnection *cliConn = dynamic_cast< DBClientConnection* >( &conn.conn() );
                     if ( cliConn && replAuthenticate( cliConn ) ) {
@@ -670,6 +672,8 @@ namespace mongo {
                 ReplSource tmp(c->current());
                 if ( tmp.hostName != cmdLine.source ) {
                     log() << "repl: --source " << cmdLine.source << " != " << tmp.hostName << " from local.sources collection" << endl;
+                    log() << "repl: for instructions on changing this slave's source, see:" << endl;
+                    log() << "http://dochub.mongodb.org/core/masterslave" << endl;
                     log() << "repl: terminating mongod after 30 seconds" << endl;
                     sleepsecs(30);
                     dbexit( EXIT_REPLICATION_ERROR );

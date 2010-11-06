@@ -312,13 +312,27 @@ namespace mongo {
                 t.append("lockTime", tl);
                 t.append("ratio", (tt ? tl/tt : 0));
                 
-                BSONObjBuilder ttt( t.subobjStart( "currentQueue" ) );
-                int w=0, r=0;
-                Client::recommendedYieldMicros( &w , &r );
-                ttt.append( "total" , w + r );
-                ttt.append( "readers" , r );
-                ttt.append( "writers" , w );
-                ttt.done();
+                {
+                    BSONObjBuilder ttt( t.subobjStart( "currentQueue" ) );
+                    int w=0, r=0;
+                    Client::recommendedYieldMicros( &w , &r );
+                    ttt.append( "total" , w + r );
+                    ttt.append( "readers" , r );
+                    ttt.append( "writers" , w );
+                    ttt.done();
+                }
+                
+                {
+                    BSONObjBuilder ttt( t.subobjStart( "activeClients" ) );
+                    int w=0, r=0;
+                    Client::getActiveClientCount( w , r );
+                    ttt.append( "total" , w + r );
+                    ttt.append( "readers" , r );
+                    ttt.append( "writers" , w );
+                    ttt.done();
+                }
+
+                
 
                 result.append( "globalLock" , t.obj() );
             }
@@ -1206,7 +1220,7 @@ namespace mongo {
             {
                 shared_ptr<Cursor> c = theDataFileMgr.findAll( fromNs.c_str(), startLoc );
                 ClientCursor *cc = new ClientCursor(0, c, fromNs.c_str());
-                id = cc->cursorid;
+                id = cc->cursorid();
             }
 
             DBDirectClient client;
@@ -1345,24 +1359,26 @@ namespace mongo {
 
             } else {
 
-                Query idQuery = QUERY( "_id" << out["_id"]);
-
                 if (cmdObj["remove"].trueValue()){
                     uassert(12515, "can't remove and update", cmdObj["update"].eoo());
-                    db.remove(ns, idQuery, 1);
+                    db.remove(ns, QUERY("_id" << out["_id"]), 1);
 
                 } else { // update
 
-                    // need to include original query for $ positional operator
-                    BSONObjBuilder b;
-                    b.append(out["_id"]);
-                    BSONObjIterator it(origQuery);
-                    while (it.more()){
-                        BSONElement e = it.next();
-                        if (strcmp(e.fieldName(), "_id"))
-                            b.append(e);
+                    BSONElement queryId = origQuery["_id"];
+                    if (queryId.eoo() || getGtLtOp(queryId) != BSONObj::Equality){
+                        // need to include original query for $ positional operator
+
+                        BSONObjBuilder b;
+                        b.append(out["_id"]);
+                        BSONObjIterator it(origQuery);
+                        while (it.more()){
+                            BSONElement e = it.next();
+                            if (strcmp(e.fieldName(), "_id"))
+                                b.append(e);
+                        }
+                        q = Query(b.obj());
                     }
-                    q = Query(b.obj());
 
                     BSONElement update = cmdObj["update"];
                     uassert(12516, "must specify remove or update", !update.eoo());
@@ -1375,7 +1391,7 @@ namespace mongo {
                     }
 
                     if (cmdObj["new"].trueValue())
-                        out = db.findOne(ns, idQuery, fields);
+                        out = db.findOne(ns, QUERY("_id" << out["_id"]), fields);
                 }
             }
 

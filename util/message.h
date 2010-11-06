@@ -98,7 +98,7 @@ namespace mongo {
         // in some cases the timeout will actually be 2x this value - eg we do a partial send,
         // then the timeout fires, then we try to send again, then the timeout fires again with
         // no data sent, then we detect that the other side is down
-        MessagingPort(double timeout = 0, int logLevel = 0 );
+        MessagingPort(double so_timeout = 0, int logLevel = 0 );
 
         virtual ~MessagingPort();
 
@@ -438,13 +438,14 @@ struct OP_GETMORE : public MSGHEADER {
 
     class SocketException : public DBException {
     public:
-        enum Type { CLOSED , RECV_ERROR , SEND_ERROR } type;
-        SocketException( Type t ) : DBException( "socket exception" , 9001 ) , type(t){}
-        
-        bool shouldPrint() const {
-            return type != CLOSED;
-        }
-        
+        const enum Type { CLOSED , RECV_ERROR , SEND_ERROR, RECV_TIMEOUT, SEND_TIMEOUT, FAILED_STATE, CONNECT_ERROR } _type;
+        SocketException( Type t ) : DBException( "socket exception" , 9001 ) , _type(t) { }        
+        bool shouldPrint() const { return _type != CLOSED; }        
+        virtual string toString() const {
+            stringstream ss; 
+            ss << "9001 socket exception " << _type;
+            return ss.str();
+        }        
     };
 
     MSGID nextMessageId();

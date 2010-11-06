@@ -95,14 +95,10 @@ namespace mongo {
         ExceptionInfo( const string& m , int c )
             : msg( m ) , code( c ){
         }
-
-        void append( BSONObjBuilder& b , const char * m = "$err" , const char * c = "code" ) const ;
-        
+        void append( BSONObjBuilder& b , const char * m = "$err" , const char * c = "code" ) const ;        
         string toString() const { stringstream ss; ss << "exception: " << code << " " << msg; return ss.str(); }
-
         bool empty() const { return msg.empty(); }
                 
-
         string msg;
         int code;
     };
@@ -172,6 +168,7 @@ namespace mongo {
     inline void uasserted(int msgid , string msg) { uasserted(msgid, msg.c_str()); }
     void uassert_nothrow(const char *msg); // reported via lasterror, but don't throw exception
     void msgassertedNoTrace(int msgid, const char *msg);
+    inline void msgassertedNoTrace(int msgid, const string& msg) { msgassertedNoTrace( msgid , msg.c_str() ); }
     void msgasserted(int msgid, const char *msg);
     inline void msgasserted(int msgid, string msg) { msgasserted(msgid, msg.c_str()); }
 

@@ -65,7 +65,6 @@ namespace mongo {
         }
         static OpTime now() {
             unsigned t = (unsigned) time(0);
-//            DEV assertInWriteLock();
             if ( t < last.secs ){
                 bool toLog = false;
                 ONCE toLog = true;

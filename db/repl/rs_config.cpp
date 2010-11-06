@@ -94,6 +94,12 @@ namespace mongo {
         if( slaveDelay ) b << "slaveDelay" << slaveDelay;
         if( hidden ) b << "hidden" << hidden;
         if( !buildIndexes ) b << "buildIndexes" << buildIndexes;
+        if( !tags.empty() ) { 
+            BSONArrayBuilder a;
+            for( set<string>::const_iterator i = tags.begin(); i != tags.end(); i++ )
+                a.append(*i);
+            b.appendArray("tags", a.done());
+        }
         return b.obj();
     }
 
@@ -137,7 +143,8 @@ namespace mongo {
     /** @param o old config
         @param n new config 
         */
-    /*static*/ bool ReplSetConfig::legalChange(const ReplSetConfig& o, const ReplSetConfig& n, string& errmsg) { 
+    /*static*/ 
+    bool ReplSetConfig::legalChange(const ReplSetConfig& o, const ReplSetConfig& n, string& errmsg) { 
         assert( theReplSet );
 
         if( o._id != n._id ) { 
@@ -170,7 +177,13 @@ namespace mongo {
                     log() << "replSet reconfig error with member: " << m.h.toString() << rsLog;
                     uasserted(13476, "buildIndexes may not change for members");
                 }
-           }
+                /* are transitions to and from arbiterOnly guaranteed safe?  if not, we should disallow here.
+                   there is a test at replsets/replsetarb3.js */
+                if( oldCfg.arbiterOnly != m.arbiterOnly ) { 
+                    log() << "replSet reconfig error with member: " << m.h.toString() << " arbiterOnly cannot change. remove and readd the member instead " << rsLog;
+                    uasserted(13510, "arbiterOnly may not change for members");
+                }
+            }
             if( m.h.isSelf() ) 
                 me++;
         }
@@ -238,7 +251,7 @@ namespace mongo {
             BSONObj mobj = members[i].Obj();
             MemberCfg m;
             try {
-                static const string legal[] = {"_id","votes","priority","host","hidden","slaveDelay","arbiterOnly","buildIndexes"};
+                static const string legal[] = {"_id","votes","priority","host","hidden","slaveDelay","arbiterOnly","buildIndexes","tags"};
                 static const set<string> legals(legal, legal + 8);
                 assertOnlyHas(mobj, legals);
 
@@ -268,6 +281,11 @@ namespace mongo {
                     m.priority = mobj["priority"].Number();
                 if( mobj.hasElement("votes") )
                     m.votes = (unsigned) mobj["votes"].Number();
+                if( mobj.hasElement("tags") ) {
+                    vector<BSONElement> v = mobj["tags"].Array();
+                    for( unsigned i = 0; i < v.size(); i++ )
+                        m.tags.insert( v[i].String() );
+                }
                 m.check();
             }
             catch( const char * p ) { 
@@ -311,9 +329,8 @@ namespace mongo {
         clear();
         int level = 2;
         DEV level = 0;
-        //log(0) << "replSet load config from: " << h.toString() << rsLog;
 
-        auto_ptr<DBClientCursor> c;
+        BSONObj cfg;
         int v = -5;
         try {
             if( h.isSelf() ) {
@@ -346,10 +363,12 @@ namespace mongo {
             }
 
             v = -4;
+            unsigned long long count = 0;
             try {
                 ScopedConn conn(h.toString());
                 v = -3;
-                c = conn->query( rsConfigNs, Query() );
+                cfg = conn.findOne(rsConfigNs, Query()).getOwned();
+                count = conn.count(rsConfigNs);
             }
             catch ( DBException& ) {
                 if ( !h.isSelf() ) {
@@ -358,13 +377,14 @@ namespace mongo {
 
                 // on startup, socket is not listening yet
                 DBDirectClient cli;
-                c = cli.query( rsConfigNs, Query() );
+                cfg = cli.findOne( rsConfigNs, Query() ).getOwned();
+                count = cli.count(rsConfigNs);
             }
+
+            if( count > 1 )
+                uasserted(13109, str::stream() << "multiple rows in " << rsConfigNs << " not supported host: " << h.toString());
             
-            if( c.get() == 0 ) {
-                version = v; return;
-            }
-            if( !c->more() ) {
+            if( cfg.isEmpty() ) {
                 version = EMPTYCONFIG;
                 return;
             }
@@ -376,9 +396,7 @@ namespace mongo {
             return;
         }
 
-        BSONObj o = c->nextSafe();
-        uassert(13109, "multiple rows in " + rsConfigNs + " not supported", !c->more());
-        from(o);
+        from(cfg);
         checkRsConfig();
         _ok = true;
         log(level) << "replSet load config ok from " << (h.isSelf() ? "self" : h.toString()) << rsLog;

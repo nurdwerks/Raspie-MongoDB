@@ -23,7 +23,7 @@
 #include "pch.h"
 #include "db.h"
 #include "client.h"
-#include "curop.h"
+#include "curop-inl.h"
 #include "json.h"
 #include "security.h"
 #include "commands.h"
@@ -215,7 +215,9 @@ namespace mongo {
         default: {
             string errmsg;
             if ( ! shardVersionOk( _ns , lockState > 0 , errmsg ) ){
-                msgasserted( StaleConfigInContextCode , (string)"[" + _ns + "] shard version not ok in Client::Context: " + errmsg );
+                ostringstream os;
+                os << "[" << _ns << "] shard version not ok in Client::Context: " << errmsg;
+                msgassertedNoTrace( StaleConfigInContextCode , os.str().c_str() );
             }
         }
         }
@@ -275,6 +277,42 @@ namespace mongo {
             co->gotLock();
     }
 
+    void KillCurrentOp::interruptJs( AtomicUInt *op ) {
+        if ( !globalScriptEngine )
+            return;
+        if ( !op ) {
+            globalScriptEngine->interruptAll();
+        } else {
+            globalScriptEngine->interrupt( *op );
+        }
+    }
+
+    void KillCurrentOp::killAll() {
+        _globalKill = true;
+        interruptJs( 0 );
+    }
+
+    void KillCurrentOp::kill(AtomicUInt i) {
+        bool found = false;
+        {
+            scoped_lock l( Client::clientsMutex );
+            for( set< Client* >::const_iterator j = Client::clients.begin(); !found && j != Client::clients.end(); ++j ) {
+                for( CurOp *k = ( *j )->curop(); !found && k; k = k->parent() ) {
+                    if ( k->opNum() == i ) {
+                        k->kill();
+                        for( CurOp *l = ( *j )->curop(); l != k; l = l->parent() ) {
+                            l->kill();
+                        }
+                        found = true;
+                    }                        
+                }
+            }
+        }
+        if ( found ) {
+            interruptJs( &i );
+        }
+    }
+        
     CurOp::~CurOp(){
         if ( _wrapped ){
             scoped_lock bl(Client::clientsMutex);
@@ -402,7 +440,7 @@ namespace mongo {
                     tablecell( ss , co.getOp() );
                     tablecell( ss , co.getNS() );
                     if ( co.haveQuery() ){
-                        tablecell( ss , co.query( true ) );
+                        tablecell( ss , co.query() );
                     }
                     else
                         tablecell( ss , "" );
@@ -455,5 +493,26 @@ namespace mongo {
         }
         
         return time;
+    }
+
+    int Client::getActiveClientCount( int& writers, int& readers ){
+        writers = 0;
+        readers = 0;
+        
+        scoped_lock bl(clientsMutex);
+        for ( set<Client*>::iterator i=clients.begin(); i!=clients.end(); ++i ){
+            Client* c = *i;
+            if ( ! c->curop()->active() )
+                continue;
+            
+            int l = c->curop()->getLockType();
+            if ( l > 0 )
+                writers++;
+            else if ( l < 0 )
+                readers++;
+            
+        }
+
+        return writers + readers;
     }
 }

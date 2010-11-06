@@ -222,9 +222,16 @@ namespace mongo {
         return runCommand(dbname, b.done(), *info);
     }
 
-    unsigned long long DBClientWithCommands::count(const string &_ns, const BSONObj& query, int options) { 
+    unsigned long long DBClientWithCommands::count(const string &_ns, const BSONObj& query, int options, int limit, int skip ) { 
         NamespaceString ns(_ns);
-        BSONObj cmd = BSON( "count" << ns.coll << "query" << query );
+        BSONObjBuilder b;
+        b.append( "count" , ns.coll );
+        b.append( "query" , query );
+        if ( limit )
+            b.append( "limit" , limit );
+        if ( skip )
+            b.append( "skip" , skip );
+        BSONObj cmd = b.obj();
         BSONObj res;
         if( !runCommand(ns.db.c_str(), cmd, res, options) )
             uasserted(11010,string("count fails:") + res.toString());
@@ -471,7 +478,7 @@ namespace mongo {
         auto_ptr<DBClientCursor> c =
             this->query(ns, query, 1, 0, fieldsToReturn, queryOptions);
 
-        uassert( 10276 ,  "DBClientBase::findOne: transport error", c.get() );
+        uassert( 10276 ,  str::stream() << "DBClientBase::findOne: transport error: " << getServerAddress() , c.get() );
 
         if ( c->hasResultFlag( ResultFlag_ShardConfigStale ) )
             throw StaleConfigException( ns , "findOne has stale config" );
@@ -493,7 +500,7 @@ namespace mongo {
         // we keep around SockAddr for connection life -- maybe MessagingPort
         // requires that?
         server.reset(new SockAddr(_server.host().c_str(), _server.port()));
-        p.reset(new MessagingPort( _timeout, _logLevel ));
+        p.reset(new MessagingPort( _so_timeout, _logLevel ));
 
         if (server->getAddr() == "0.0.0.0"){
             failed = true;
@@ -513,18 +520,22 @@ namespace mongo {
     void DBClientConnection::_checkConnection() {
         if ( !failed )
             return;
-        if ( lastReconnectTry && time(0)-lastReconnectTry < 2 )
-            return;
+        if ( lastReconnectTry && time(0)-lastReconnectTry < 2 ) {
+            // we wait a little before reconnect attempt to avoid constant hammering.
+            // but we throw we don't want to try to use a connection in a bad state
+            throw SocketException(SocketException::FAILED_STATE);
+        }
         if ( !autoReconnect )
-            return;
+            throw SocketException(SocketException::FAILED_STATE);
 
         lastReconnectTry = time(0);
         log(_logLevel) << "trying reconnect to " << _serverString << endl;
         string errmsg;
         failed = false;
         if ( ! _connect(errmsg) ) { 
+            failed = true;
             log(_logLevel) << "reconnect " << _serverString << " failed " << errmsg << endl;
-			return;
+            throw SocketException(SocketException::CONNECT_ERROR);
 		}
 
 		log(_logLevel) << "reconnect " << _serverString << " ok" << endl;
@@ -835,7 +846,7 @@ namespace mongo {
             if ( !port().call(toSend, response) ) {
                 failed = true;
                 if ( assertOk )
-                    uassert( 10278 , "dbclient error communicating with server", false);
+                    uasserted( 10278 , str::stream() << "dbclient error communicating with server: " << getServerAddress() );
                 return false;
             }
         }

@@ -19,23 +19,14 @@
 #include "../../client/dbclient.h"
 #include "rs.h"
 #include "../repl.h"
-
+#include "connections.h"
 namespace mongo {
 
     using namespace bson;
-
     extern unsigned replSetForceInitialSyncFailure;
 
-    void startSyncThread() { 
-        Client::initThread("rs_sync");
-        cc().iAmSyncThread();
-        theReplSet->syncThread();
-        cc().shutdown();
-    }
-
+    /* apply the log op that is in param o */
     void ReplSetImpl::syncApply(const BSONObj &o) {
-        //const char *op = o.getStringField("op");
-        
         char db[MaxDatabaseNameLen];
         const char *ns = o.getStringField("ns");
         nsToDatabase(ns, db);
@@ -54,6 +45,10 @@ namespace mongo {
         applyOperation_inlock(o);
     }
 
+    /* initial oplog application, during initial sync, after cloning. 
+       @return false on failure.  
+       this method returns an error and doesn't throw exceptions (i think).
+    */
     bool ReplSetImpl::initialSyncOplogApplication(
         string hn, 
         const Member *primary,
@@ -66,11 +61,18 @@ namespace mongo {
         try {
             OplogReader r;
             if( !r.connect(hn) ) { 
-                log(2) << "replSet can't connect to " << hn << " to read operations" << rsLog;
+                log() << "replSet initial sync error can't connect to " << hn << " to read " << rsoplog << rsLog;
                 return false;
             }
 
-            r.query(rsoplog, bo());
+            {
+                BSONObjBuilder q;
+                q.appendDate("$gte", applyGTE.asDate());
+                BSONObjBuilder query;
+                query.append("ts", q.done());
+                BSONObj queryObj = query.done();
+                r.query(rsoplog, queryObj);
+            }
             assert( r.haveCursor() );
 
             /* we lock outside the loop to avoid the overhead of locking on every operation.  server isn't usable yet anyway! */
@@ -79,14 +81,23 @@ namespace mongo {
             {
                 if( !r.more() ) { 
                     sethbmsg("replSet initial sync error reading remote oplog");
+                    log() << "replSet initial sync error remote oplog (" << rsoplog << ") on host " << hn << " is empty?" << rsLog;
                     return false;
                 }
                 bo op = r.next();
                 OpTime t = op["ts"]._opTime();
                 r.putBack(op);
-                assert( !t.isNull() );
+
+                if( op.firstElement().fieldName() == string("$err") ) { 
+                    log() << "replSet initial sync error querying " << rsoplog << " on " << hn << " : " << op.toString() << rsLog;
+                    return false;
+                }
+
+                uassert( 13508 , str::stream() << "no 'ts' in first op in oplog: " << op , !t.isNull() );
                 if( t > applyGTE ) {
                     sethbmsg(str::stream() << "error " << hn << " oplog wrapped during initial sync");
+                    log() << "replSet initial sync expected first optime of " << applyGTE << rsLog;
+                    log() << "replSet initial sync but received a first optime of " << t << " from " << hn << rsLog;
                     return false;
                 }
             }
@@ -99,8 +110,6 @@ namespace mongo {
                     break;
                 BSONObj o = r.nextSafe(); /* note we might get "not master" at some point */
                 {
-                    //writelock lk("");
-
                     ts = o["ts"]._opTime();
 
                     /* if we have become primary, we dont' want to apply things from elsewhere
@@ -244,11 +253,8 @@ namespace mongo {
             OpTime ts = o["ts"]._opTime();
             long long h = o["h"].numberLong();
             if( ts != lastOpTimeWritten || h != lastH ) { 
-                log(1) << "TEMP our last op time written: " << lastOpTimeWritten.toStringPretty() << endl;
-                log(1) << "TEMP primary's GTE: " << ts.toStringPretty() << endl;
-                /*
-                }*/
-
+                log() << "replSet our last op time written: " << lastOpTimeWritten.toStringPretty() << endl;
+                log() << "replset primary's GTE: " << ts.toStringPretty() << endl;
                 syncRollback(r);
                 return;
             }
@@ -376,6 +382,23 @@ namespace mongo {
     }
 
     void ReplSetImpl::syncThread() {
+        /* test here was to force a receive timeout
+        ScopedConn c("localhost");
+        bo info;
+        try {
+            log() << "this is temp" << endl;
+            c.runCommand("admin", BSON("sleep"<<120), info);
+            log() << info.toString() << endl;
+            c.runCommand("admin", BSON("sleep"<<120), info);
+            log() << "temp" << endl;
+        }
+        catch( DBException& e ) { 
+            log() << e.toString() << endl;
+            c.runCommand("admin", BSON("sleep"<<120), info);
+            log() << "temp" << endl;
+        }
+        */
+
         while( 1 ) {
             if( myConfig().arbiterOnly )
                 return;
@@ -389,7 +412,7 @@ namespace mongo {
             }
             catch(...) { 
                 sethbmsg("unexpected exception in syncThread()");
-                // TODO : SET NOT SECONDARY here.
+                // TODO : SET NOT SECONDARY here?
                 sleepsecs(60);
             }
             sleepsecs(1);
@@ -400,6 +423,20 @@ namespace mongo {
                */
             OCCASIONALLY mgr->send( boost::bind(&Manager::msgCheckNewState, theReplSet->mgr) );
         }
+    }
+
+    void startSyncThread() {
+        static int n;
+        if( n != 0 ) {
+            log() << "replSet ERROR : more than one sync thread?" << rsLog;
+            assert( n == 0 );
+        }
+        n++;
+
+        Client::initThread("replica set sync");
+        cc().iAmSyncThread();
+        theReplSet->syncThread();
+        cc().shutdown();
     }
 
 }

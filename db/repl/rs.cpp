@@ -143,6 +143,7 @@ namespace mongo {
     }
 
     void ReplSetImpl::_fillIsMasterHost(const Member *m, vector<string>& hosts, vector<string>& passives, vector<string>& arbiters) {
+        assert( m );
         if( m->config().hidden )
             return;
 
@@ -172,6 +173,7 @@ namespace mongo {
             _fillIsMasterHost(_self, hosts, passives, arbiters);
 
             for( Member *m = _members.head(); m; m = m->next() ) {
+                assert( m );
                 _fillIsMasterHost(m, hosts, passives, arbiters);
             }
 
@@ -463,7 +465,8 @@ namespace mongo {
         else {
             changeState(MemberState::RS_RECOVERING);
 
-            // oplog will be allocated when sync begins            
+            // oplog will be allocated when sync begins     
+            /* TODO : could this cause two sync threads to exist (race condition)? */
             boost::thread t(startSyncThread);
         }
     }

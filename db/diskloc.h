@@ -126,7 +126,12 @@ namespace mongo {
             return compare(b) < 0;
         }
 
-        DiskLoc& writing(); // see dur.h
+        /**
+         * Marks this disk loc for writing
+         * @returns a non const reference to this disk loc
+         * This function explicitly signals we are writing and casts away const
+         */
+        DiskLoc& writing() const; // see dur.h
 
         /* Get the "thing" associated with this disk location.
            it is assumed the object is what you say it is -- you must assure that
@@ -137,8 +142,9 @@ namespace mongo {
         Record* rec() const;
         DeletedRecord* drec() const;
         Extent* ext() const;
-        BtreeBucket* btree() const;
-        BtreeBucket* btreemod() const; // marks modified / dirty
+        const BtreeBucket* btree() const;
+        // Explicitly signals we are writing and casts away const
+        BtreeBucket* btreemod() const;
 
         /*MongoDataFile& pdf() const;*/
     };

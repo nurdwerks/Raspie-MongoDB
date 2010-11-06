@@ -19,6 +19,7 @@
 #include "health.h"
 #include "../../util/background.h"
 #include "../../client/dbclient.h"
+#include "../../client/connpool.h"
 #include "../commands.h"
 #include "../../util/concurrency/value.h"
 #include "../../util/concurrency/task.h"
@@ -171,10 +172,7 @@ namespace mongo {
             if( skip.count(e.fieldName()) ) continue;
             ss << e.toString() << ' ';
         }
-        ss << "</td>";
-
-        ss << "</tr>";
-        ss << '\n';
+        ss << "</td></tr>\n";
     }
 
     void ReplSetImpl::_getOplogDiagsAsHtml(unsigned server_id, stringstream& ss) const { 
@@ -189,9 +187,17 @@ namespace mongo {
         //const bo fields = BSON( "o" << false << "o2" << false );
         const bo fields;
 
-        ScopedConn conn(m->fullName());        
+        /** todo fix we might want an so timeout here */
+        DBClientConnection conn(false, 0, /*timeout*/ 20);
+        {
+            string errmsg;
+            if( !conn.connect(m->fullName(), errmsg) ) { 
+                ss << "couldn't connect to " << m->fullName() << ' ' << errmsg;
+                return;
+            }
+        }
 
-        auto_ptr<DBClientCursor> c = conn->query(rsoplog, Query().sort("$natural",1), 20, 0, &fields);
+        auto_ptr<DBClientCursor> c = conn.query(rsoplog, Query().sort("$natural",1), 20, 0, &fields);
         if( c.get() == 0 ) { 
             ss << "couldn't query " << rsoplog;
             return;
@@ -222,7 +228,7 @@ namespace mongo {
             ss << rsoplog << " is empty\n";
         }
         else { 
-            auto_ptr<DBClientCursor> c = conn->query(rsoplog, Query().sort("$natural",-1), 20, 0, &fields);
+            auto_ptr<DBClientCursor> c = conn.query(rsoplog, Query().sort("$natural",-1), 20, 0, &fields);
             if( c.get() == 0 ) { 
                 ss << "couldn't query [2] " << rsoplog;
                 return;
@@ -248,8 +254,6 @@ namespace mongo {
         ss << _table();
         ss << p(time_t_to_String_short(time(0)) + " current time");
 
-        //ss << "</pre>\n";
-
         if( !otEnd.isNull() ) {
             ss << "<p>Log length in time: ";
             unsigned d = otEnd.getSecs() - otFirst.getSecs();
@@ -261,7 +265,6 @@ namespace mongo {
                 ss << h / 24.0 << " days";
             ss << "</p>\n";
         }
-
     }
 
     void ReplSetImpl::_summarizeAsHtml(stringstream& s) const { 
@@ -358,6 +361,8 @@ namespace mongo {
             bb.append("health", 1.0);
             bb.append("state", (int) box.getState().s);
             bb.append("stateStr", box.getState().toString());
+            bb.appendTimestamp("optime", lastOpTimeWritten.asDate());
+            bb.appendDate("optimeDate", lastOpTimeWritten.getSecs() * 1000LL);
             string s = _self->lhb();
             if( !s.empty() )
                 bb.append("errmsg", s);

@@ -1,3 +1,4 @@
+// @file replsetarb3.js
 // try turning arbiters into non-arbiters and vice versa
 
 /*
@@ -14,10 +15,13 @@
  * 11: check m3.state == 7
  */
 
+var debug = false;
+
 var statusSoon = function(s) {
   assert.soon(function() {
-      var status = master.getDB("admin").runCommand({replSetGetStatus: 1});
-      printjson(status);
+      var status = master.getDB("admin").runCommand({ replSetGetStatus: 1 });
+      if (debug)
+        printjson(status);
       return status.members[2].state == s;
     });
 };
@@ -89,7 +93,7 @@ print("2");
 statusSoon(7);
 assert.eq(replTest.liveNodes.slaves[1].getDB("local").oplog.rs.count(), 0);
 
-
+/*
 print("3");
 delete config.members[2].arbiterOnly;
 reconfig();
@@ -134,7 +138,7 @@ reconfig();
 print("11");
 statusSoon(7);
 assert.eq(replTest.liveNodes.slaves[1].getDB("local").oplog.rs.count(), 0);
-
+*/
 
 replTest.stopSet( 15 );
 

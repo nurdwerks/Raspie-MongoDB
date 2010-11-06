@@ -25,10 +25,10 @@
 #include "../db/pdfile.h"
 #include "../db/cmdline.h"
 
-#include "server.h"
-#include "config.h"
 #include "chunk.h"
+#include "config.h"
 #include "grid.h"
+#include "server.h"
 
 namespace mongo {
 
@@ -50,16 +50,16 @@ namespace mongo {
 
     /* --- DBConfig --- */
 
-    DBConfig::CollectionInfo::CollectionInfo( DBConfig * db , const BSONObj& in ){
+    DBConfig::CollectionInfo::CollectionInfo( const BSONObj& in ){
         _dirty = false;
         _dropped = in["dropped"].trueValue();
         if ( in["key"].isABSONObj() )
-            shard( db , in["_id"].String() , in["key"].Obj() , in["unique"].trueValue() );
+            shard( in["_id"].String() , in["key"].Obj() , in["unique"].trueValue() );
     }
 
 
-    void DBConfig::CollectionInfo::shard( DBConfig * db , const string& ns , const ShardKeyPattern& key , bool unique ){
-        _cm.reset( new ChunkManager( db, ns , key , unique ) );
+    void DBConfig::CollectionInfo::shard( const string& ns , const ShardKeyPattern& key , bool unique ){
+        _cm.reset( new ChunkManager( ns , key , unique ) );
         _dirty = true;
         _dropped = false;
     }
@@ -133,10 +133,10 @@ namespace mongo {
         // From this point on, 'ns' is going to be treated as a sharded collection. We assume this is the first 
         // time it is seen by the sharded system and thus create the first chunk for the collection. All the remaining
         // chunks will be created as a by-product of splitting.
-        ci.shard( this , ns , fieldsAndOrder , unique );        
+        ci.shard( ns , fieldsAndOrder , unique );        
         ChunkManagerPtr cm = ci.getCM();
         uassert( 13449 , "collections already sharded" , (cm->numChunks() == 0) );
-        cm->createFirstChunk();
+        cm->createFirstChunk( getPrimary() );
         _save(); 
                 
         try {
@@ -194,29 +194,19 @@ namespace mongo {
         to.append("primary", _primary.getName() );
     }
     
-    bool DBConfig::unserialize(const BSONObj& from){
+    void DBConfig::unserialize(const BSONObj& from){
         log(1) << "DBConfig unserialize: " << _name << " " << from << endl;
         assert( _name == from["_id"].String() );
 
         _shardingEnabled = from.getBoolField("partitioned");
         _primary.reset( from.getStringField("primary") );
 
-        // this is a temporary migration thing
+        // In the 1.5.x series, we used to have collection metadata nested in the database entry. The 1.6.x series
+        // had migration code that ported that info to where it belongs now: the 'collections' collection. We now
+        // just assert that we're not migrating from a 1.5.x directly into a 1.7.x without first converting. 
         BSONObj sharded = from.getObjectField( "sharded" );
-        if ( sharded.isEmpty() )
-             return false;
-        
-        BSONObjIterator i(sharded);
-        while ( i.more() ){
-            BSONElement e = i.next();
-            uassert( 10182 ,  "sharded things have to be objects" , e.type() == Object );
-            
-            BSONObj c = e.embeddedObject();
-            uassert( 10183 ,  "key has to be an object" , c["key"].type() == Object );
-            
-            _collections[e.fieldName()].shard( this , e.fieldName() , c["key"].Obj() , c["unique"].trueValue() );
-        }
-        return true;
+        if ( ! sharded.isEmpty() )
+            uasserted( 13509 , "can't migrate from 1.5.x release to the current one; need to upgrade to 1.6.x first");
     }
 
     bool DBConfig::load(){
@@ -229,24 +219,21 @@ namespace mongo {
         
         BSONObj o = conn->findOne( ShardNS::database , BSON( "_id" << _name ) );
 
-
         if ( o.isEmpty() ){
             conn.done();
             return false;
         }
         
-        if ( unserialize( o ) )
-            _save();
+        unserialize( o );
         
         BSONObjBuilder b;
         b.appendRegex( "_id" , (string)"^" + _name + "." );
-        
 
         auto_ptr<DBClientCursor> cursor = conn->query( ShardNS::collection ,b.obj() );
         assert( cursor.get() );
         while ( cursor->more() ){
             BSONObj o = cursor->next();
-            _collections[o["_id"].String()] = CollectionInfo( this , o );
+            _collections[o["_id"].String()] = CollectionInfo( o );
         }
         
         conn.done();        
@@ -323,7 +310,7 @@ namespace mongo {
 
         // 3
         while ( true ){
-            int num;
+            int num = 0;
             if ( ! _dropShardedCollections( num , allServers , errmsg ) )
                 return 0;
             log() << "   DBConfig::dropDatabase: " << _name << " dropped sharded collections: " << num << endl;
@@ -368,7 +355,7 @@ namespace mongo {
                 if ( i->second.isSharded() )
                     break;
             }
-            
+
             if ( i == _collections.end() )
                 break;
 
@@ -382,15 +369,16 @@ namespace mongo {
 
             i->second.getCM()->getAllShards( allServers );
             i->second.getCM()->drop( i->second.getCM() );
-            
+            uassert( 10176 , str::stream() << "shard state missing for " << i->first , removeSharding( i->first ) );
+
             num++;
             uassert( 10184 ,  "_dropShardedCollections too many collections - bailing" , num < 100000 );
             log(2) << "\t\t dropped " << num << " so far" << endl;
         }
-        
+
         return true;
     }
-    
+
     void DBConfig::getAllShards(set<Shard>& shards) const{
         shards.insert(getPrimary());
         for (Collections::const_iterator it(_collections.begin()), end(_collections.end()); it != end; ++it){

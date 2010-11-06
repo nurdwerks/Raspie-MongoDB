@@ -70,8 +70,6 @@ namespace mongo {
         }
     }
 
-    int ctr = 0;
-
     KillCurrentOp killCurrentOp;
     
     int lockFile = 0;
@@ -335,19 +333,21 @@ namespace mongo {
                         log = true;
                     }
                 }
+                catch ( UserException& ue ) {
+                    tlog(3) << " Caught Assertion in " << opToString(op) << ", continuing " << ue.toString() << endl;
+                    ss << " exception " << ue.toString();
+                }
                 catch ( AssertionException& e ) {
-                    static int n;
-                    tlog(3) << " Caught Assertion in " << opToString(op) << ", continuing" << endl;
-                    ss << " exception " + e.toString();
-                    log = ++n < 10;
+                    tlog(3) << " Caught Assertion in " << opToString(op) << ", continuing " << e.toString() << endl;
+                    ss << " exception " << e.toString();
+                    log = true;
                 }
             }
         }
         currentOp.ensureStarted();
         currentOp.done();
         int ms = currentOp.totalTimeMillis();
-        
-        log = log || (logLevel >= 2 && ++ctr % 512 == 0);
+
         //DEV log = true; 
         if ( log || ms > logThreshold ) {
             if( logLevel < 3 && op == dbGetMore && strstr(ns, ".oplog.") && ms < 3000 && !log ) {
@@ -590,6 +590,14 @@ namespace mongo {
         while ( d.moreJSObjs() ) {
             BSONObj js = d.nextJsObj();
             uassert( 10059 , "object to insert too large", js.objsize() <= BSONObjMaxUserSize);
+
+            { // check no $ modifiers
+                BSONObjIterator i( js );
+                while ( i.more() ){
+                    BSONElement e = i.next();
+                    uassert( 13511 , "object to insert can't have $ mofidiers" , e.fieldName()[0] != '$' );
+                }
+            }
             theDataFileMgr.insertWithObjMod(ns, js, false);
             logOp("i", ns, js);
             globalOpCounters.gotInsert();

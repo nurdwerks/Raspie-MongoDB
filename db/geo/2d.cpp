@@ -17,14 +17,14 @@
 */
 
 #include "pch.h"
-#include "../namespace.h"
+#include "../namespace-inl.h"
 #include "../jsobj.h"
 #include "../index.h"
 #include "../../util/unittest.h"
 #include "../commands.h"
 #include "../pdfile.h"
 #include "../btree.h"
-#include "../curop.h"
+#include "../curop-inl.h"
 #include "../matcher.h"
 
 #include "core.h"
@@ -887,7 +887,7 @@ namespace mongo {
         void exec(){
             const IndexDetails& id = *_spec->getDetails();
             
-            BtreeBucket * head = id.head.btree();
+            const BtreeBucket * head = id.head.btree();
             assert( head );
             /*
              * Search algorithm
