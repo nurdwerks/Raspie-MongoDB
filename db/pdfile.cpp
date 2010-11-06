@@ -424,7 +424,7 @@ namespace mongo {
         massert( 10357 ,  "shutdown in progress", !goingAway );
         massert( 10358 ,  "bad new extent size", approxSize >= 0 && approxSize <= Extent::maxSize() );
         massert( 10359 ,  "header==0 on new extent: 32 bit mmap space exceeded?", header() ); // null if file open failed
-        int ExtentSize = approxSize <= header()->unusedLength ? approxSize : header()->unusedLength;
+        int ExtentSize = approxSize <= header()->unusedLength ? approxSize : int( header()->unusedLength );
         DiskLoc loc;
         if ( ExtentSize <= 0 ) {
             /* not there could be a lot of looping here is db just started and
