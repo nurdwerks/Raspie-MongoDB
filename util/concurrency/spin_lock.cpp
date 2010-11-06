@@ -29,7 +29,7 @@ namespace mongo {
     }
 
     SpinLock::SpinLock()
-#if defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
+#if defined(HAVE_SYNC_LOCK_TEST_AND_SET_4)
         : _locked( false ) { } 
 #elif defined(_WIN32)
     { InitializeCriticalSectionAndSpinCount(&_cs, 4000); }
@@ -38,7 +38,7 @@ namespace mongo {
 #endif
 
     void SpinLock::lock(){
-#if defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
+#if defined(HAVE_SYNC_LOCK_TEST_AND_SET_4)
         // fast path
         if (!_locked && !__sync_lock_test_and_set(&_locked, true)) {
             return;
@@ -66,7 +66,7 @@ namespace mongo {
     }
 
     void SpinLock::unlock(){
-#if defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
+#if defined(HAVE_SYNC_LOCK_TEST_AND_SET_4)
 
         __sync_lock_release(&_locked);
 
