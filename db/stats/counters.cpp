@@ -22,24 +22,19 @@
 
 namespace mongo {
 
-    OpCounters::OpCounters(){
-        int zero = 0;
+    OpCounters::OpCounters() {
+        _insert = _query = _update = _delete = _getmore = _command = 0;
+    }
 
-        BSONObjBuilder b;
-        b.append( "insert" , zero );
-        b.append( "query" , zero );
-        b.append( "update" , zero );
-        b.append( "delete" , zero );
-        b.append( "getmore" , zero );
-        b.append( "command" , zero );
-        _obj = b.obj();
-
-        _insert = (AtomicUInt*)_obj["insert"].value();
-        _query = (AtomicUInt*)_obj["query"].value();
-        _update = (AtomicUInt*)_obj["update"].value();
-        _delete = (AtomicUInt*)_obj["delete"].value();
-        _getmore = (AtomicUInt*)_obj["getmore"].value();
-        _command = (AtomicUInt*)_obj["command"].value();
+    BSONObj OpCounters::getObj() const {
+       BSONObjBuilder b;
+       b.append( "insert" , _insert );
+       b.append( "query" , _query );
+       b.append( "update" , _update );
+       b.append( "delete" , _delete );
+       b.append( "getmore" , _getmore );
+       b.append( "command" , _command );
+       return b.obj();
     }
 
     void OpCounters::gotOp( int op , bool isCommand ){

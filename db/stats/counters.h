@@ -33,31 +33,31 @@ namespace mongo {
         
         OpCounters();
 
-        AtomicUInt * getInsert(){ return _insert; }
-        AtomicUInt * getQuery(){ return _query; }
-        AtomicUInt * getUpdate(){ return _update; }
-        AtomicUInt * getDelete(){ return _delete; }
-        AtomicUInt * getGetMore(){ return _getmore; }
-        AtomicUInt * getCommand(){ return _command; }
+        AtomicUInt * getInsert(){ return &_insert; }
+        AtomicUInt * getQuery(){ return &_query; }
+        AtomicUInt * getUpdate(){ return &_update; }
+        AtomicUInt * getDelete(){ return &_delete; }
+        AtomicUInt * getGetMore(){ return &_getmore; }
+        AtomicUInt * getCommand(){ return &_command; }
         
-        void gotInsert(){ if (0) _insert[0]++; }
-        void gotQuery(){ if (0) _query[0]++; }
-        void gotUpdate(){ if (0) _update[0]++; }
-        void gotDelete(){ if (0) _delete[0]++; }
-        void gotGetMore(){ if (0) _getmore[0]++; }
-        void gotCommand(){ if (0) _command[0]++; }
+        void gotInsert(){ _insert++; }
+        void gotQuery(){ _query++; }
+        void gotUpdate(){ _update++; }
+        void gotDelete(){ _delete++; }
+        void gotGetMore(){ _getmore++; }
+        void gotCommand(){ _command++; }
 
         void gotOp( int op , bool isCommand );
 
-        BSONObj& getObj(){ return _obj; }
+        BSONObj getObj() const;
+
     private:
-        BSONObj _obj;
-        AtomicUInt * _insert;
-        AtomicUInt * _query;
-        AtomicUInt * _update;
-        AtomicUInt * _delete;
-        AtomicUInt * _getmore;
-        AtomicUInt * _command;
+        AtomicUInt _insert;
+        AtomicUInt _query;
+        AtomicUInt _update;
+        AtomicUInt _delete;
+        AtomicUInt _getmore;
+        AtomicUInt _command;
     };
     
     extern OpCounters globalOpCounters;
