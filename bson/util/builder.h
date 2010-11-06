@@ -112,7 +112,7 @@ namespace mongo {
            append<unsigned>( j );
         }
         void appendNum(bool j) {
-           append<char>( j );
+           append<bool>( j );
         }
         void appendNum(double j) {
            append<double>( j );
