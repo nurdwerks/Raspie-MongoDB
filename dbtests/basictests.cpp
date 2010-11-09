@@ -24,6 +24,7 @@
 #include "../util/array.h"
 #include "../util/text.h"
 #include "../util/queue.h"
+#include "../util/bswap.h"
 
 namespace BasicTests {
 
@@ -244,6 +245,17 @@ namespace BasicTests {
         }
         
     };
+
+    class bswaptest {
+    public:
+
+        void run() {
+           unsigned long long a = 0x123456789abcdef0ULL;
+           ASSERT_EQUALS( 0xf0debc9a78563412ULL, byteSwap<unsigned long long>( a ) );
+        }
+        
+    };
+
 
     class AssertTests {
     public:
@@ -542,6 +554,7 @@ namespace BasicTests {
             add< stringbuildertests::reset2 >();
 
             add< sleeptest >();
+            add< bswaptest >();
             add< AssertTests >();
             
             add< ArrayTests::basic1 >();

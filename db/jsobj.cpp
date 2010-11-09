@@ -1203,22 +1203,10 @@ namespace mongo {
 
     void OID::init() {
         static AtomicUInt inc = getRandomNumber();
-        unsigned t = (unsigned) time(0);
-        char *T = (char *) &t;
-        data[0] = T[3];
-        data[1] = T[2];
-        data[2] = T[1];
-        data[3] = T[0];
 
+        copyBE<unsigned>( &data[0], (unsigned) time(0) );
         copyLE<unsigned>( &data[4], _machine );
-
-        int new_inc = inc++;
-        T = (char *) &new_inc;
-        char * raw = (char*)&b;
-        raw[0] = T[3];
-        raw[1] = T[2];
-        raw[2] = T[1];
-        raw[3] = T[0];
+        copyBE<int>( &b, inc++ );
     }
 
     unsigned OID::_machine = (unsigned) security.getNonceInitSafe();
@@ -1240,26 +1228,16 @@ namespace mongo {
 
     void OID::init(Date_t date, bool max){
         int time = (int) (date / 1000);
-        char* T = (char *) &time;
-        data[0] = T[3];
-        data[1] = T[2];
-        data[2] = T[1];
-        data[3] = T[0];
+        copyBE<int>( &data[0], time );
 
         if (max)
-            copyLE<long long>( data + 4, 0xFFFFFFFFFFFFFFFFll );
+            copyBE<long long>( data + 4, 0xFFFFFFFFFFFFFFFFll );
         else
-            copyLE<long long>( data + 4, 0x0000000000000000ll );
+            copyBE<long long>( data + 4, 0x0000000000000000ll );
     }
 
-    time_t OID::asTimeT(){
-        int time;
-        char* T = (char *) &time;
-        T[0] = data[3];
-        T[1] = data[2];
-        T[2] = data[1];
-        T[3] = data[0];
-        return time;
+    time_t OID::asTimeT() {
+        return readBE<int>( &data[0] );
     }
 
     Labeler::Label GT( "$gt" );

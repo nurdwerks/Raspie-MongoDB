@@ -243,6 +243,23 @@ namespace mongo {
   template<class T> T readLE( const char* data ) {
      return refLE<T>( data );
   }
+
+  template<class T> T readBE( const void* data ) {
+      T retval = 0;
+      const unsigned char* u_data = reinterpret_cast<const unsigned char*>( data );
+      for( unsigned i = 0; i < sizeof( T ); ++i ) {
+         retval |= T( u_data[i] ) << ( 8 * ( sizeof( T ) - 1 - i ) );
+      }
+      return retval;
+  }
+
+  template<class T> void copyBE( void* dest, T src ) {
+     unsigned char* u_dest = reinterpret_cast<unsigned char*>( dest );
+     for ( unsigned i = 0; i < sizeof( T ); ++i ) {
+        u_dest[ sizeof(T) - 1 - i ] = src >> ( 8 * i );
+     }
+  }
+
 }
 
 #endif

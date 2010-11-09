@@ -75,7 +75,7 @@ namespace mongo {
             _bits = bits;
             if ( e.type() == BinData ){
                 int len = 0;
-                _copy( (char*)&_hash , e.binData( len ) );
+                _hash = readBE<long long>( e.binData( len ) );
                 assert( len == 8 );
                 _bits = bits;
             }
@@ -298,7 +298,7 @@ namespace mongo {
         
         void append( BSONObjBuilder& b , const char * name ) const {
             char buf[8];
-            _copy( buf , (char*)&_hash );
+            copyBE<long long>( buf, _hash );
             b.appendBinData( name , 8 , bdtCustom , buf );
         }
         
@@ -322,17 +322,6 @@ namespace mongo {
         }
 
     private:
-
-        void _copy( char * dst , const char * src ) const {
-#ifdef BOOST_LITTLE_ENDIAN
-            for ( unsigned a=0; a<8; a++ ){
-                dst[a] = src[7-a];
-            }
-#else
-            memcpy( dst, src, 8 );
-#endif
-        }
-
         long long _hash;
         unsigned _bits; // bits per field, so 1 to 32
     };
