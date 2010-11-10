@@ -397,6 +397,13 @@ namespace mongo {
                 ClientCursor::appendStats( bb );
                 bb.done();
             }
+
+            {
+                BSONObjBuilder bb( result.subobjStart( "network" ) );
+                networkCounter.append( bb );
+                bb.done();
+            }
+
             
             timeBuilder.appendNumber( "after counters" , Listener::getElapsedTimeMillis() - start );            
 
@@ -404,6 +411,11 @@ namespace mongo {
                 BSONObjBuilder bb( result.subobjStart( "repl" ) );
                 appendReplicationInfo( bb , authed , cmdObj["repl"].numberInt() );
                 bb.done();
+
+                if ( ! _isMaster() ){
+                    result.append( "opcountersRepl" , replOpCounters.getObj() );
+                }
+                    
             }
 
             timeBuilder.appendNumber( "after repl" , Listener::getElapsedTimeMillis() - start );            
