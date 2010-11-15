@@ -69,9 +69,6 @@ namespace mongo {
     inline void printStackTrace( ostream &o = cout ) { }
 #endif
 
-    /* set to TRUE if we are exiting */
-    extern bool goingAway;
-
     bool isPrime(int n);
     int nextPrime(int n);
 
@@ -252,9 +249,13 @@ namespace mongo {
             return _active;
         }
         
+        /**
+         * @return if row was printed
+         */
         bool hit( int n = 1 ){
             if ( ! _active ){
                 cout << "warning: hit on in-active ProgressMeter" << endl;
+                return false;
             }
 
             _done += n;

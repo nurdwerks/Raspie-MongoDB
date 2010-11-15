@@ -273,7 +273,6 @@ namespace mongo {
     }
 
     QueryResult* processGetMore(const char *ns, int ntoreturn, long long cursorid , CurOp& curop, int pass, bool& exhaust ) {
-//        log() << "TEMP GETMORE " << ns << ' ' << cursorid << ' ' << pass << endl;
         exhaust = false;
         ClientCursor::Pointer p(cursorid);
         ClientCursor *cc = p.c();
@@ -570,6 +569,7 @@ namespace mongo {
             
             *_b << "nYields" << nYields;
             *_b << "nChunkSkips" << nChunkSkips;
+            *_b << "isMultiKey" << c->isMultiKey();
 
             *_b << "indexBounds" << c->prettyIndexBounds();
 
@@ -730,7 +730,7 @@ namespace mongo {
             else {
                 _nscannedObjects++;
                 DiskLoc cl = _c->currLoc();
-                if ( _chunkMatcher && ! _chunkMatcher->belongsToMe( _c->currKey(), _c->currLoc() ) ){
+                if ( _chunkMatcher && ! _chunkMatcher->belongsToMe( cl.obj() ) ){
                     _nChunkSkips++;
                     // cout << "TEMP skipping un-owned chunk: " << _c->current() << endl;
                 }

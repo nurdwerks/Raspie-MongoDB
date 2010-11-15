@@ -126,12 +126,12 @@ AddOption( "--dd",
            action="store",
            help="debug build no optimization, additional debug logging, etc..." )
 
-AddOption( "--recstore",
-           dest="recstore",
+AddOption( "--durable",
+           dest="durable",
            type="string",
            nargs=0,
            action="store",
-           help="use new recstore" )
+           help="durability build" )
 
 AddOption( "--noshell",
            dest="noshell",
@@ -330,8 +330,9 @@ if GetOption( "libpath" ) is not None:
 if GetOption( "cpppath" ) is not None:
     env["CPPPATH"] = [GetOption( "cpppath" )]
 
-if GetOption( "recstore" ) != None:
-    env.Append( CPPDEFINES=[ "_RECSTORE" ] )
+if GetOption( "durable" ) != None:
+    env.Append( CPPDEFINES=[ "_DURABLE" ] )
+
 env.Append( CPPDEFINES=[ "_SCONS" , "MONGO_EXPOSE_MACROS" ] )
 env.Append( CPPPATH=[ "." ] )
 
@@ -469,7 +470,7 @@ coreServerFiles += scriptingFiles
 
 coreShardFiles = [ "s/config.cpp" , "s/grid.cpp" , "s/chunk.cpp" , "s/shard.cpp" , "s/shardkey.cpp" ]
 shardServerFiles = coreShardFiles + Glob( "s/strategy*.cpp" ) + [ "s/commands_admin.cpp" , "s/commands_public.cpp" , "s/request.cpp" ,  "s/cursors.cpp" ,  "s/server.cpp" , "s/config_migrate.cpp" , "s/s_only.cpp" , "s/stats.cpp" , "s/balance.cpp" , "s/balancer_policy.cpp" , "db/cmdline.cpp" , "s/writeback_listener.cpp" , "s/shard_version.cpp" ]
-serverOnlyFiles += coreShardFiles + [ "s/d_logic.cpp" , "s/d_writeback.cpp" , "s/d_migrate.cpp" , "s/d_state.cpp" , "s/d_split.cpp" , "client/distlock_test.cpp" , "s/d_background_splitter.cpp" ]
+serverOnlyFiles += coreShardFiles + [ "s/d_logic.cpp" , "s/d_writeback.cpp" , "s/d_migrate.cpp" , "s/d_state.cpp" , "s/d_split.cpp" , "client/distlock_test.cpp" , "s/d_chunk_matcher.cpp" , "s/d_background_splitter.cpp" ]
 
 serverOnlyFiles += [ "db/module.cpp" ] + Glob( "db/modules/*.cpp" )
 

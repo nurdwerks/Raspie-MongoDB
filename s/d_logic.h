@@ -1,4 +1,4 @@
-// d_logic.h
+// @file d_logic.h
 /*
  *    Copyright (C) 2010 10gen Inc.
  *
@@ -19,42 +19,17 @@
 #pragma once
 
 #include "../pch.h"
+
 #include "../db/jsobj.h"
+
+#include "d_chunk_matcher.h"
 #include "util.h"
 
 namespace mongo {
     
-    class ShardingState;
-    
     typedef ShardChunkVersion ConfigVersion;
     typedef map<string,ConfigVersion> NSVersionMap;
 
-    // -----------
-
-    class ChunkMatcher {
-    public:
-        bool belongsToMe( const BSONObj& key , const DiskLoc& loc ) const;
-
-    private:
-        // intantiated by ShardingState only
-        friend class ShardingState;
-        ChunkMatcher( ConfigVersion version );
-        
-        void addRange( const BSONObj& min , const BSONObj& max );
-        
-        // highest ShardChunkVersion for which this ChunkMatcher's information is accurate
-        const ConfigVersion _version;
-
-        // key pattern for chunks under this range
-        BSONObj _key;
-
-        // a map from a min key into a range or continguous chunks
-        typedef map<BSONObj,pair<BSONObj,BSONObj>,BSONObjCmp> RangeMap;
-        RangeMap _map;
-    };
-
-    typedef shared_ptr<ChunkMatcher> ChunkMatcherPtr;
-    
     // --------------
     // --- global state ---
     // --------------

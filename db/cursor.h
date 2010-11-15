@@ -92,6 +92,17 @@ namespace mongo {
                          force a data file conversion. 7Jul09
         */
         virtual bool getsetdup(DiskLoc loc) = 0;
+        
+        virtual bool isMultiKey() const = 0;
+
+        /**
+         * return true if the keys in the index have been modified from the main doc
+         * if you have { a : 1 , b : [ 1 , 2 ] } 
+         * an index on { a : 1 } would not be modified 
+         * an index on { b : 1 } would be since the values of the array are put in the index
+         *                       not the array
+         */
+        virtual bool modifiedKeys() const = 0;
 
         virtual BSONObj prettyIndexBounds() const { return BSONArray(); }
 
@@ -124,22 +135,15 @@ namespace mongo {
 
     /* table-scan style cursor */
     class BasicCursor : public Cursor {
-    protected:
-        DiskLoc curr, last;
-        const AdvanceStrategy *s;
-        void incNscanned() { if ( !curr.isNull() ) { ++_nscanned; } }
-
-    private:
-        bool tailable_;
-        shared_ptr< CoveredIndexMatcher > _matcher;
-        long long _nscanned;
-        void init() {
-            tailable_ = false;
-        }
     public:
-        bool ok() {
-            return !curr.isNull();
+        BasicCursor(DiskLoc dl, const AdvanceStrategy *_s = forward()) : curr(dl), s( _s ), _nscanned() {
+            incNscanned();
+            init();
         }
+        BasicCursor(const AdvanceStrategy *_s = forward()) : s( _s ), _nscanned() {
+            init();
+        }
+        bool ok() { return !curr.isNull(); }
         Record* _current() {
             assert( ok() );
             return curr.rec();
@@ -149,22 +153,9 @@ namespace mongo {
             BSONObj j(r);
             return j;
         }
-        virtual DiskLoc currLoc() {
-            return curr;
-        }
-        virtual DiskLoc refLoc() {
-            return curr.isNull() ? last : curr;
-        }
-        
+        virtual DiskLoc currLoc() { return curr; }
+        virtual DiskLoc refLoc()  { return curr.isNull() ? last : curr; }        
         bool advance();
-
-        BasicCursor(DiskLoc dl, const AdvanceStrategy *_s = forward()) : curr(dl), s( _s ), _nscanned() {
-            incNscanned();
-            init();
-        }
-        BasicCursor(const AdvanceStrategy *_s = forward()) : s( _s ), _nscanned() {
-            init();
-        }
         virtual string toString() { return "BasicCursor"; }
         virtual void setTailable() {
             if ( !curr.isNull() || !last.isNull() )
@@ -172,11 +163,23 @@ namespace mongo {
         }
         virtual bool tailable() { return tailable_; }
         virtual bool getsetdup(DiskLoc loc) { return false; }
+        virtual bool isMultiKey() const { return false; }
+        virtual bool modifiedKeys() const { return false; }
         virtual bool supportGetMore() { return true; }
         virtual bool supportYields() { return true; }
         virtual CoveredIndexMatcher *matcher() const { return _matcher.get(); }        
         virtual void setMatcher( shared_ptr< CoveredIndexMatcher > matcher ) { _matcher = matcher; }
         virtual long long nscanned() { return _nscanned; }        
+
+    protected:
+        DiskLoc curr, last;
+        const AdvanceStrategy *s;
+        void incNscanned() { if ( !curr.isNull() ) { ++_nscanned; } }
+    private:
+        bool tailable_;
+        shared_ptr< CoveredIndexMatcher > _matcher;
+        long long _nscanned;
+        void init() { tailable_ = false; }
     };
 
     /* used for order { $natural: -1 } */

@@ -1296,10 +1296,17 @@ rs.slaveOk = function () { return db.getMongo().setSlaveOk(); }
 rs.status = function () { return db._adminCommand("replSetGetStatus"); }
 rs.isMaster = function () { return db.isMaster(); }
 rs.initiate = function (c) { return db._adminCommand({ replSetInitiate: c }); }
-rs.reconfig = function(cfg) {
-  cfg.version = rs.conf().version + 1;
-
-  return db._adminCommand({ replSetReconfig: cfg });
+rs.reconfig = function (cfg) {
+    cfg.version = rs.conf().version + 1;
+    var res = null;
+    try {
+        res = db.adminCommand({ replSetReconfig: cfg });
+    }
+    catch (e) {
+        print("shell got exception during reconfig: " + e);
+        print("in some circumstances, the primary steps down and closes connections on a reconfig");
+    }
+    return res;
 }
 rs.add = function (hostport, arb) {
     var cfg = hostport;
@@ -1320,7 +1327,15 @@ rs.add = function (hostport, arb) {
             cfg.arbiterOnly = true;
     }
     c.members.push(cfg);
-    return db._adminCommand({ replSetReconfig: c });
+    var res = null;
+    try { 
+        res = db.adminCommand({ replSetReconfig: c });
+    }
+    catch (e) {
+        print("shell got exception during reconfig: " + e);
+        print("in some circumstances, the primary steps down and closes connections on a reconfig");
+    }
+    return res;
 }
 rs.stepDown = function (secs) { return db._adminCommand({ replSetStepDown:secs||60}); }
 rs.freeze = function (secs) { return db._adminCommand({replSetFreeze:secs}); }
