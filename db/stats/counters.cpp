@@ -26,17 +26,6 @@ namespace mongo {
         _insert = _query = _update = _delete = _getmore = _command = 0;
     }
 
-    BSONObj OpCounters::getObj() const {
-       BSONObjBuilder b;
-       b.append( "insert" , _insert );
-       b.append( "query" , _query );
-       b.append( "update" , _update );
-       b.append( "delete" , _delete );
-       b.append( "getmore" , _getmore );
-       b.append( "command" , _command );
-       return b.obj();
-    }
-
     void OpCounters::gotOp( int op , bool isCommand ){
         switch ( op ){
         case dbInsert: /*gotInsert();*/ break; // need to handle multi-insert
@@ -58,28 +47,37 @@ namespace mongo {
         }
     }
     
-    BSONObj& OpCounters::getObj(){
+    BSONObj OpCounters::getObj(){
+        // Please explain
         const unsigned MAX = 1 << 30;
         RARELY {
             bool wrap = 
-                _insert->get() > MAX || 
-                _query->get() > MAX || 
-                _update->get() > MAX || 
-                _delete->get() > MAX || 
-                _getmore->get() > MAX || 
-                _command->get() > MAX;
+                _insert.get() > MAX || 
+                _query.get() > MAX || 
+                _update.get() > MAX || 
+                _delete.get() > MAX || 
+                _getmore.get() > MAX || 
+                _command.get() > MAX;
             
             if ( wrap ){
-                _insert->zero();
-                _query->zero();
-                _update->zero();
-                _delete->zero();
-                _getmore->zero();
-                _command->zero();
+                _insert.zero();
+                _query.zero();
+                _update.zero();
+                _delete.zero();
+                _getmore.zero();
+                _command.zero();
             }
                 
         }
-        return _obj; 
+        
+        BSONObjBuilder b;
+        b.append( "insert" , _insert );
+        b.append( "query" , _query );
+        b.append( "update" , _update );
+        b.append( "delete" , _delete );
+        b.append( "getmore" , _getmore );
+        b.append( "command" , _command );
+        return b.obj();
     }
 
     IndexCounters::IndexCounters(){

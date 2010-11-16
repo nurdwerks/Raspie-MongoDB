@@ -50,7 +50,7 @@ namespace mongo {
                 n1 = n2 = n3 = n4 = '\n';
             }
             char txt[2];
-            unsigned short version;
+            packedLE<unsigned short>::t version;
 
             // these are just for diagnostic ease
             char n1;
@@ -65,7 +65,7 @@ namespace mongo {
 
         struct JSectHeader {
             char txt[4];
-            unsigned len;
+            packedLE<unsigned>::t len;
         };
 
         struct JSectFooter { 
@@ -76,8 +76,8 @@ namespace mongo {
                 txt2[0] = txt2[1] = txt2[2] = txt2[3] = '\n';
             }
             char txt[4];
-            unsigned hash;
-            unsigned long long reserved;
+            packedLE<unsigned>::t hash;
+            packedLE<unsigned long long> reserved;
             char txt2[4];
         };
 
@@ -89,8 +89,8 @@ namespace mongo {
         };
 
         struct JEntry {
-            unsigned len;
-            int fileNo;
+            packedLE<unsigned>::t len;
+            packedLE<int> fileNo;
             // char data[]
         };
 #pragma pack()

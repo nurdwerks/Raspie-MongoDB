@@ -50,7 +50,7 @@ namespace mongo {
 
         void gotOp( int op , bool isCommand );
 
-        BSONObj getObj() const;
+        BSONObj getObj();
 
     private:
         AtomicUInt _insert;
