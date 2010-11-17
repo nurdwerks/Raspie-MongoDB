@@ -26,7 +26,7 @@
 #include "mongommf.h"
 
 namespace mongo {
-
+  
 	/* in the mongo source code, "client" means "database". */
 
     const int MaxDatabaseNameLen = 256; // max str len for the db name, including null char
@@ -128,9 +128,10 @@ namespace mongo {
         DiskLoc deletedList[Buckets];
         // ofs 168 (8 byte aligned)
         struct Stats {
-            storageLE<long long> datasize; //datasize and nrecords MUST Be adjacent code assumes!
+            // datasize and nrecords MUST Be adjacent code assumes!
+            storageLE<long long> datasize; // this includes padding, but not record headers
             storageLE<long long> nrecords;
-        } stats;
+	} stats;
         storageLE<int> lastExtentSize;
         storageLE<int> nIndexes;
     private:

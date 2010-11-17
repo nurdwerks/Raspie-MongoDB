@@ -25,6 +25,7 @@
 #include "dur_journal.h"
 #include "../util/logfile.h"
 #include "../util/timer.h"
+#include "../util/alignedbuilder.h"
 #include <boost/static_assert.hpp>
 #undef assert
 #define assert MONGO_assert
@@ -33,6 +34,8 @@
 
 namespace mongo {
     using namespace mongoutils;
+
+    class AlignedBuilder;
 
     namespace dur {
         BOOST_STATIC_ASSERT( sizeof(JHeader) == 8192 );
@@ -56,8 +59,10 @@ namespace mongo {
             unsigned nextFileNumber;
             LogFile *lf;
             string dir;
+            MVar<path> &toUnlink;
 
-            Journal()
+            Journal() : 
+              toUnlink(*(new MVar<path>)) /* freeing MVar at program termination would be problematic */
             { 
                 written = 0;
                 nextFileNumber = 0;
@@ -66,7 +71,7 @@ namespace mongo {
 
             void open();
             void rotate();
-            void journal(const BufBuilder& b);
+            void journal(const AlignedBuilder& b);
 
             path getFilePathFor(int filenumber) const;
         };
@@ -103,25 +108,24 @@ namespace mongo {
             nextFileNumber++;
             {
                 JHeader h(fname);
-                lf->synchronousAppend(&h, sizeof(h));
+                AlignedBuilder b(8192);
+                b.appendStruct(h);
+                lf->synchronousAppend(b.buf(), b.len());
             }
         }
 
-        static MVar<path> toUnlink;
-        static void _unlinkThread() { 
-            path p = toUnlink.take();
-            Client::initThread("unlink"); // we intentionally deferred initThread call so we know initialization of globals is complete
+        void unlinkThread() { 
+            Client::initThread("unlink");
             while( 1 ) {
+                path p = j.toUnlink.take();
                 try {
                     remove(p);
                 }
                 catch(std::exception& e) { 
                     log() << "error unlink of journal file " << p.string() << " failed " << e.what() << endl;
                 }
-                p = toUnlink.take();
             }
         }
-        boost::thread unlinkThread(_unlinkThread);
 
         /** check if time to rotate files.  assure a file is open. 
             done separately from the journal() call as we can do this part
@@ -145,13 +149,13 @@ namespace mongo {
                     // we do unlinks asynchronously - unless they are falling behind.
                     // (unlinking big files can be slow on some operating systems; we don't want to stop world)
                     path p = j.getFilePathFor(fn);
-                    if( !toUnlink.tryPut(p) ) {
+                    if( !j.toUnlink.tryPut(p) ) {
                         /* DR___ for durability error and warning codes 
                            Compare to RS___ for replica sets
                         */
                         log() << "DR100 latency warning on journal unlink" << endl;
                         Timer t;
-                        toUnlink.put(p);
+                        j.toUnlink.put(p);
                         log() << "toUnlink.put() " << t.millis() << "ms" << endl;
                     }
                 }
@@ -166,16 +170,16 @@ namespace mongo {
                 }
             }
             catch(std::exception& e) { 
-                log() << "warning exception in Journal::rotate" << e.what() << endl;
+                log() << "warning exception opening journal file " << e.what() << endl;
             }
         }
 
         /** write to journal             
         */
-        void journal(const BufBuilder& b) {
+        void journal(const AlignedBuilder& b) {
             j.journal(b);
         }
-        void Journal::journal(const BufBuilder& b) {
+        void Journal::journal(const AlignedBuilder& b) {
             try {
                 /* todo: roll if too big */
                 if( lf == 0 )

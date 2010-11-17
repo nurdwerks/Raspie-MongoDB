@@ -33,6 +33,7 @@
 #include "dbhelpers.h"
 #include "matcher.h"
 #include "../client/dbclient.h"
+#include "projection.h"
 
 namespace mongo {
 
@@ -217,6 +218,9 @@ namespace mongo {
         void setPos( int n ) { _pos = n; } // TODO : this is bad too
         
         BSONObj indexKeyPattern() { return _c->indexKeyPattern();  }
+        bool modifiedKeys() const { return _c->modifiedKeys(); }
+        bool isMultiKey() const { return _c->isMultiKey(); }
+
         bool ok() { return _c->ok(); }
         bool advance(){ return _c->advance(); }
         BSONObj current() { return _c->current(); }
@@ -353,8 +357,8 @@ namespace mongo {
         ElapsedTracker _yieldSometimesTracker;
 
     public:
-        shared_ptr< ParsedQuery > pq;
-        shared_ptr< FieldMatcher > fields; // which fields query wants returned
+        shared_ptr<ParsedQuery> pq;
+        shared_ptr<Projection> fields; // which fields query wants returned
         Message originalMessage; // this is effectively an auto ptr for data the matcher points to
 
 
