@@ -127,12 +127,14 @@ doTest = function (signal) {
                 try {
                     printjson(dbs[1].isMaster());
                     printjson(dbs[1].bar.count());
+                    printjson(dbs[1].adminCommand({replSetGetStatus : 1}));
                 }
                 catch (e) { print(e); }
                 print("dbs[2]:");
                 try {
                     printjson(dbs[2].isMaster());
                     printjson(dbs[2].bar.count());
+                    printjson(dbs[2].adminCommand({replSetGetStatus : 1}));
                 }
                 catch (e) { print(e); }
                 assert(false, "sync1.js too many exceptions, failing");
@@ -201,7 +203,10 @@ doTest = function (signal) {
 
         count++;
         if (count == 100) {
-            print(dbs[0].getSisterDB("admin").runCommand({replSetGetStatus:1}));
+            printjson(dbs[0].isMaster());
+            printjson(dbs[0].adminCommand({replSetGetStatus:1}));
+            printjson(dbs[1].isMaster());
+            printjson(dbs[1].adminCommand({replSetGetStatus:1}));
             pause("FAIL part 11");
             assert(false, "replsets/\nsync1.js fails timing out");
             replTest.stopSet(signal);

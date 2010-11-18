@@ -26,6 +26,13 @@ namespace mongo {
 
     class mutex;
 
+    inline boost::xtime incxtimemillis( long long millis ){
+        boost::xtime xt; 
+        boost::xtime_get(&xt, boost::TIME_UTC); 
+        xt.nsec += millis * 1000000;
+        return xt;
+    }
+
     /** only used on _DEBUG builds.
         MutexDebugger checks that we always acquire locks for multiple mutexes in a consistant (acyclic) order.
         If we were inconsistent we could deadlock.
@@ -141,7 +148,7 @@ namespace mongo {
     class mutex : boost::noncopyable {
     public:
 #if defined(_DEBUG)
-        const char *_name;
+        const char * const _name;
 #endif
 
 #if defined(_DEBUG)
@@ -151,7 +158,7 @@ namespace mongo {
         mutex(const char *) 
 #endif
         { 
-            _m = new boost::mutex(); 
+            _m = new boost::timed_mutex(); 
             IGNORE_OBJECT( _m  );   // Turn-off heap checking on _m
         }
         ~mutex() {
@@ -160,6 +167,30 @@ namespace mongo {
                 delete _m;
             }
         }
+        
+        class try_lock : boost::noncopyable {
+        public:
+            try_lock( mongo::mutex &m , int millis = 0 ) 
+                : _l( m.boost() , incxtimemillis( millis ) ) , 
+#if BOOST_VERSION >= 103500
+                  ok( _l.owns_lock() ) 
+#else
+                  ok( _l.locked() )
+#endif
+            {
+            }
+
+            ~try_lock() { 
+            }
+            
+        private:
+            boost::timed_mutex::scoped_timed_lock _l;
+
+        public:
+            const bool ok;
+        };
+
+
         class scoped_lock : boost::noncopyable {
 #if defined(_DEBUG)
             mongo::mutex *mut;
@@ -176,13 +207,16 @@ namespace mongo {
                 mutexDebugger.leaving(mut->_name);
 #endif
             }
-            boost::mutex::scoped_lock &boost() { return _l; }
+            boost::timed_mutex::scoped_lock &boost() { return _l; }
         private:
-            boost::mutex::scoped_lock _l;
+            boost::timed_mutex::scoped_lock _l;
         };
+
+
     private:
-        boost::mutex &boost() { return *_m; }
-        boost::mutex *_m;
+
+        boost::timed_mutex &boost() { return *_m; }
+        boost::timed_mutex *_m;
     };
     
     typedef mutex::scoped_lock scoped_lock;
