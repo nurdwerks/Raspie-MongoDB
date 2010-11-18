@@ -38,9 +38,9 @@ namespace mongo {
     
 #pragma pack(1)
     struct QueryResult : public MsgData {
-        storageLE<long long> cursorId;
-        storageLE<int>       startingFrom;
-        storageLE<int>       nReturned;
+        packedLE<long long>::t cursorId;
+        packedLE<int>::t       startingFrom;
+        packedLE<int>::t       nReturned;
 
         const char *data() {
             return reinterpret_cast<char*>( &nReturned + 1 );

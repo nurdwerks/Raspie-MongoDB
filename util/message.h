@@ -230,12 +230,12 @@ struct OP_GETMORE : public MSGHEADER {
 #pragma pack(1)
     /* todo merge this with MSGHEADER (or inherit from it). */
     struct MsgData {
-        storageLE<int>   len;        /* len of the msg, including this field */
-        storageLE<MSGID> id;         /* request/reply id's match... */
-        storageLE<MSGID> responseTo; /* id of the message we are responding to */
-        storageLE<short> _operation;
-        storageLE<signed char> _flags;
-        storageLE<signed char> _version;
+        packedLE<int>::t   len;       /* len of the msg, including this field */
+        packedLE<MSGID>::t id;        /* request/reply id's match... */
+        packedLE<MSGID>::t responseTo;/* id of the message we are responding to */
+        packedLE<short>::t _operation;
+        packedLE<signed char>::t _flags;
+        packedLE<signed char>::t _version;
         char _data[4];
 
         int operation() const {
