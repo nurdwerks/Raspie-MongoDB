@@ -1,4 +1,4 @@
-// @file d_chunk_matcher.h
+// @file d_chunk_manager.h
 
 /**
 *    Copyright (C) 2008 10gen Inc.
@@ -24,15 +24,28 @@
 
 namespace mongo {
 
-    class ChunkMatcher {
+    /**
+     * Controls the boundaries of all the chunks for a given collection that live in this shard.
+     */
+    class ShardChunkManager {
     public:
-        ChunkMatcher( ShardChunkVersion version , const BSONObj& key );
-        ~ChunkMatcher() {}
+
+        /**
+         * Loads the ShardChunkManager with all boundaries for chunks of a given collection that live in an given
+         * shard
+         *
+         * @param configServer name of the server where the configDB currently is. Can be empty to indicate
+         *        that the configDB is running locally
+         * @param ns namespace for the collections whose chunks we're interested
+         * @param shardName name of the shard that this chunk matcher should track
+         *
+         * This constructor throws on connectivity errors
+         */
+        ShardChunkManager( const string& configServer , const string& ns , const string& shardName );
+
+        ~ShardChunkManager() {}
 
         bool belongsToMe( const BSONObj& obj ) const;
-
-        void addRange( const BSONObj& min , const BSONObj& max );
-        void addChunk( const BSONObj& min , const BSONObj& max );
 
         //void splitChunk( const BSONObj& min , const BSONObj& max , const BSONObj& middle );
         //void removeChunk( const BSONObj& min , const BSONObj& max );
@@ -42,8 +55,8 @@ namespace mongo {
         ShardChunkVersion getVersion() const { return _version; } 
 
     private:
-        // highest ShardChunkVersion for which this ChunkMatcher's information is accurate
-        const ShardChunkVersion _version;
+        // highest ShardChunkVersion for which this ShardChunkManager's information is accurate
+        ShardChunkVersion _version;
 
         // key pattern for chunks under this range
         BSONObj _key;
@@ -57,6 +70,6 @@ namespace mongo {
         RangeMap _rangesMap;
     };
 
-    typedef shared_ptr<ChunkMatcher> ChunkMatcherPtr;
+    typedef shared_ptr<ShardChunkManager> ShardChunkManagerPtr;
     
 }  // namespace mongo
