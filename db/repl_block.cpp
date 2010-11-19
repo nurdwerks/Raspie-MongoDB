@@ -64,7 +64,7 @@ namespace mongo {
                 }
             }
             bool owned;
-            OpTime * loc;
+            packedLE<OpTime>::t* loc;
         };
 
         SlaveTracking() : _mutex("SlaveTracking") {
@@ -90,7 +90,8 @@ namespace mongo {
                     
                     for ( map<Ident,Info>::iterator i=_slaves.begin(); i!=_slaves.end(); i++ ){
                         BSONObjBuilder temp;
-                        temp.appendTimestamp( "syncedTo" , i->second.loc[0].asDate() );
+                        temp.appendTimestamp( "syncedTo" , 
+                                              OpTime( i->second.loc[0] ).asDate() );
                         todo.push_back( pair<BSONObj,BSONObj>( i->first.obj.getOwned() , 
                                                                BSON( "$set" << temp.obj() ).getOwned() ) );
                     }
@@ -133,13 +134,13 @@ namespace mongo {
             if ( Helpers::findOne( NS , ident.obj , res ) ){
                 assert( res["syncedTo"].type() );
                 i.owned = false;
-                i.loc = (OpTime*)res["syncedTo"].value();
+                i.loc = (packedLE<OpTime>::t*)res["syncedTo"].value();
                 i.loc[0] = last;
                 return;
             }
             
             i.owned = true;
-            i.loc = new OpTime[1];
+            i.loc = new packedLE<OpTime>::t[1];
             i.loc[0] = last;
             _dirty = true;
 

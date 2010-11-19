@@ -146,5 +146,17 @@ namespace mongo {
         }
     };
 #pragma pack()
+
+    template<> inline ReplTime convert<OpTime,ReplTime>( OpTime src ) {
+       return src.asDate();
+    }
+
+    template<> inline OpTime convert<ReplTime, OpTime>( ReplTime src ) {
+       return src;
+    }
+
+    template<> struct packedLE<OpTime> {
+       typedef storageLE<OpTime, packed_storage<OpTime, ReplTime> > t;
+    };
     
 } // namespace mongo

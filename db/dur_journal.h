@@ -86,7 +86,7 @@ namespace mongo {
             }
             char txt[4];
             packedLE<unsigned>::t hash;
-            packedLE<unsigned long long> reserved;
+            packedLE<unsigned long long>::t reserved;
             char txt2[4];
         };
 
@@ -100,7 +100,7 @@ namespace mongo {
         /** an individual operation within section.  Either the entire section should be applied, or nothing. */
         struct JEntry {
             packedLE<unsigned>::t len;
-            packedLE<int> fileNo;
+            packedLE<int>::t fileNo;
             // char data[]
         };
 #pragma pack()
