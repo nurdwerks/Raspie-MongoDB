@@ -128,18 +128,19 @@ namespace mongo {
             memcpy(grow((int) len), src, len);
         }
 
+        template<class T>
+        void appendStruct(const T& s) { 
+            appendBuf(&s, sizeof(T));
+        }
+
         void appendStr(const StringData &str , bool includeEOO = true ) {
             const int len = str.size() + ( includeEOO ? 1 : 0 );
             memcpy(grow(len), str.data(), len);
         }
 
-        int len() const {
-            return l;
-        }
-
-        void setlen( int newLen ){
-            l = newLen;
-        }
+        int len() const { return l; }
+        void setlen( int newLen ) { l = newLen; }
+        int getSize() const { return size; }
 
         /* returns the pre-grow write position */
         inline char* grow(int by) {
@@ -150,8 +151,6 @@ namespace mongo {
             }
             return data + oldlen;
         }
-
-        int getSize() const { return size; }
 
     private:
         /* "slow" portion of 'grow()'  */

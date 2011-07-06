@@ -1024,7 +1024,7 @@ namespace mongo {
             name=0;
             eoo=EOO;
         }
-        storageLE<int> totsize;
+        packedLE<int>::t totsize;
         char maxkey;
         char name;
         char eoo;
@@ -1038,23 +1038,13 @@ namespace mongo {
             name=0;
             eoo=EOO;
         }
-        storageLE<int> totsize;
+        packedLE<int>::t totsize;
         char minkey;
         char name;
         char eoo;
     } minkeydata;
     BSONObj minKey((const char *) &minkeydata);
 
-/*
-    struct JSObj0 {
-        JSObj0() {
-            totsize= littleEndian<int>( 5 );
-            eoo = EOO;
-        }
-        int totsize;
-        char eoo;
-    } js0;
-*/
 #pragma pack()
 
     struct BsonUnitTest : public UnitTest {

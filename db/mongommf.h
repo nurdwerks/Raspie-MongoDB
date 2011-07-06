@@ -64,10 +64,62 @@ namespace mongo {
         */
         static void* switchToPrivateView(void *debug_readonly_ptr);
 
+        /** for a filename a/b/c.3
+            filePath() is "a/b/c"
+            fileSuffixNo() is 3
+            if the suffix is "ns", fileSuffixNo -1
+        */
+        string filePath() const { return _filePath; }
+        int fileSuffixNo() const { return _fileSuffixNo; }
+        void* view_write() { return _view_write; }
+
+        bool& dirty() { return _dirty; }
+
     private:
         void *_view_write;
         void *_view_private;
         void *_view_readonly; // for _DEBUG build
+        bool _dirty; // we wrote to the private view
+
+        string _filePath;   // e.g. "somepath/dbname"
+        int _fileSuffixNo;  // e.g. 3.  -1="ns"
+        void setPath(string fn);
+        bool finishOpening();
     };
 
+    /** for durability support we want to be able to map pointers to specific MongoMMF objects. 
+    */
+    class PointerToMMF { 
+    public:
+        PointerToMMF() : _m("PointerToMMF") { }
+
+        /** register view. threadsafe */
+        void add(void *view, MongoMMF *f) {
+            mutex::scoped_lock lk(_m);
+            _views[view] = f;
+        }
+
+        /** de-register view. threadsafe */
+        void remove(void *view) {
+            mutex::scoped_lock lk(_m);
+            _views.erase(view);
+        }
+
+        /** find associated MMF object for a given pointer.
+            threadsafe
+            @param ofs out returns offset into the view of the pointer, if found.
+            @return the MongoMMF to which this pointer belongs. null if not found.
+        */
+        MongoMMF* find(void *p, /*out*/ size_t& ofs);
+
+        /** for doing many finds in a row with one lock operation */
+        mutex& _mutex() { return _m; }
+        MongoMMF* _find(void *p, /*out*/ size_t& ofs);
+
+    private:
+        mutex _m;
+        map<void*, MongoMMF*> _views;
+    };
+
+    extern PointerToMMF privateViews;
 }

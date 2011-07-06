@@ -897,9 +897,9 @@ namespace mongo {
             if( cmdLine.pretouch > 1 ) {
                 /* note: this is bad - should be put in ReplSource.  but this is first test... */
                 static int countdown;
+                assert( countdown >= 0 );
                 if( countdown > 0 ) {
                     countdown--; // was pretouched on a prev pass
-                    assert( countdown >= 0 );
                 } else {
                     const int m = 4;
                     if( tp.get() == 0 ) {
@@ -1560,6 +1560,7 @@ namespace mongo {
             /* replication is not configured yet (for --slave) in local.sources.  Poll for config it
             every 20 seconds.
             */
+            log() << "no source given, add a master to local.sources to start replication" << endl;
             return 20;
         }
 

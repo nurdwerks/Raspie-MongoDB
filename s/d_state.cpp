@@ -1,4 +1,4 @@
-// d_state.cpp
+// @file d_state.cpp
 
 /**
 *    Copyright (C) 2008 10gen Inc.
@@ -100,12 +100,14 @@ namespace mongo {
     
     bool ShardingState::hasVersion( const string& ns ){
         scoped_lock lk(_mutex);
+
         NSVersionMap::const_iterator i = _versions.find(ns);
         return i != _versions.end();
     }
     
     bool ShardingState::hasVersion( const string& ns , ConfigVersion& version ){
         scoped_lock lk(_mutex);
+
         NSVersionMap::const_iterator i = _versions.find(ns);
         if ( i == _versions.end() )
             return false;
@@ -113,16 +115,34 @@ namespace mongo {
         return true;
     }
     
-    ConfigVersion& ShardingState::getVersion( const string& ns ){
+    const ConfigVersion ShardingState::getVersion( const string& ns ) const {
         scoped_lock lk(_mutex);
-        return _versions[ns];
+
+        NSVersionMap::const_iterator it = _versions.find( ns );
+        if ( it != _versions.end() ) {
+            return it->second;
+        } else {
+            return 0;
+        }
     }
     
     void ShardingState::setVersion( const string& ns , const ConfigVersion& version ){
         scoped_lock lk(_mutex);
-        ConfigVersion& me = _versions[ns];
-        assert( version == 0 || version > me );
-        me = version;
+
+        if ( version != 0 ) {
+            NSVersionMap::const_iterator it = _versions.find( ns );
+
+            // TODO 11-18-2010 as we're bringing chunk boundary information to mongod, it may happen that
+            // we're setting a version for the ns that the shard knows about already (e.g because it set
+            // it itself in a chunk migration)
+            // eventually, the only cases to issue a setVersion would be 
+            // 1) First chunk of a collection, for version 1|0
+            // 2) Drop of a collection, for version 0|0
+            // 3) Load of the shard's chunk state, in a primary-secondary failover
+            assert( it == _versions.end() || version >= it->second );
+        }
+
+        _versions[ns] = version;
     }
 
     void ShardingState::appendInfo( BSONObjBuilder& b ){
@@ -138,6 +158,7 @@ namespace mongo {
             BSONObjBuilder bb( b.subobjStart( "versions" ) );
             
             scoped_lock lk(_mutex);
+
             for ( NSVersionMap::iterator i=_versions.begin(); i!=_versions.end(); ++i ){
                 bb.appendTimestamp( i->first , i->second );
             }
@@ -146,96 +167,43 @@ namespace mongo {
 
     }
 
-    ChunkMatcherPtr ShardingState::getChunkMatcher( const string& ns ){
+    bool ShardingState::needChunkManager( const string& ns ) const {
         if ( ! _enabled )
-            return ChunkMatcherPtr();
+            return false;
         
         if ( ! ShardedConnectionInfo::get( false ) )
-            return ChunkMatcherPtr();
-        
+            return false;
+
+        return true;
+    }
+
+    ShardChunkManagerPtr ShardingState::getChunkManager( const string& ns ){
         ConfigVersion version;
         { 
             // check cache
             scoped_lock lk( _mutex );
-            version = _versions[ns];
+
+            NSVersionMap::const_iterator it = _versions.find( ns );
+            if ( it == _versions.end() ) {
+                return ShardChunkManagerPtr();
+            }
+
+            version = it->second;
             
-            if ( ! version )
-                return ChunkMatcherPtr();
-            
-            ChunkMatcherPtr p = _chunks[ns];
-            if ( p && p->_version >= version ){
+            ShardChunkManagerPtr p = _chunks[ns];
+            if ( p && p->getVersion() >= version ){
                 // our cached version is good, so just return
                 return p;                
             }
         }
 
-        // have to get a connection to the config db
-        // special case if i'm the configdb since i'm locked and if i connect to myself
-        // its a deadlock
-        auto_ptr<ScopedDbConnection> scoped;
-        auto_ptr<DBDirectClient> direct;
-        
-        DBClientBase * conn;
+        // load the chunk information for this shard from the config database
+        // a reminder: ShardChunkManager may throw on construction
+        const string c = (_configServer == _shardHost) ? "" /* local */ : _configServer;
+        ShardChunkManagerPtr p( new ShardChunkManager( c , ns , _shardName ) );
 
-        if ( _configServer == _shardHost ){
-            direct.reset( new DBDirectClient() );
-            conn = direct.get();
-        }
-        else {
-            scoped.reset( new ScopedDbConnection( _configServer ) );
-            conn = scoped->get();
-        }
-
-        // actually query all the chunks for 'ns' that live in this shard
-        // sorting so we can efficiently bucket them
-        BSONObj q;
-        {
-            BSONObjBuilder b;
-            b.append( "ns" , ns.c_str() );
-            b.append( "shard" , BSON( "$in" << BSON_ARRAY( _shardHost << _shardName ) ) );
-            q = b.obj();
-        }
-        auto_ptr<DBClientCursor> cursor = conn->query( "config.chunks" , Query(q).sort( "min" ) );
-
-        assert( cursor.get() );
-        if ( ! cursor->more() ){
-            // TODO: should we update the local version or cache this result?
-            if ( scoped.get() )
-                scoped->done();
-            return ChunkMatcherPtr();
-        }
-        
-        ChunkMatcherPtr p( new ChunkMatcher( version ) );
-
-        // coallesce the chunk's bounds in ranges if there are adjacent chunks 
-        BSONObj min,max;
-        while ( cursor->more() ){
-            BSONObj d = cursor->next();
-            
-            // first chunk
-            if ( min.isEmpty() ){
-                min = d["min"].Obj().getOwned();
-                max = d["max"].Obj().getOwned();
-                continue;
-            }
-
-            // chunk is adjacent to last chunk
-            if ( max == d["min"].Obj() ){
-                max = d["max"].Obj().getOwned();
-                continue;
-            }
-
-            // discontinuity; register range and reset min/max
-            p->addRange( min.getOwned() , max.getOwned() );
-            min = d["min"].Obj().getOwned();
-            max = d["max"].Obj().getOwned();
-        }
-        assert( ! min.isEmpty() );
-        p->addRange( min.getOwned() , max.getOwned() );
-        
-        if ( scoped.get() )
-            scoped->done();
-
+        // TODO 11-18-2010 verify that the version in _versions is compatible with _checks[ns]
+        // Eventually, the version that will be authoritative is the ShardChunkManager's
         { 
             scoped_lock lk( _mutex );
             _chunks[ns] = p;
@@ -271,8 +239,13 @@ namespace mongo {
         _tl.reset();
     }
 
-    ConfigVersion& ShardedConnectionInfo::getVersion( const string& ns ){
-        return _versions[ns];
+    const ConfigVersion ShardedConnectionInfo::getVersion( const string& ns ) const {
+        NSVersionMap::const_iterator it = _versions.find( ns );
+        if ( it != _versions.end() ) {
+            return it->second;
+        } else {
+            return 0;
+        }
     }
     
     void ShardedConnectionInfo::setVersion( const string& ns , const ConfigVersion& version ){
@@ -419,18 +392,18 @@ namespace mongo {
                 return false;
             }
             
-            ConfigVersion& oldVersion = info->getVersion(ns);
-            ConfigVersion& globalVersion = shardingState.getVersion(ns);
+            const ConfigVersion oldVersion = info->getVersion(ns);
+            const ConfigVersion globalVersion = shardingState.getVersion(ns);
             
             if ( oldVersion > 0 && globalVersion == 0 ){
                 // this had been reset
-                oldVersion = 0;
+                info->setVersion( ns , 0 );
             }
 
             if ( version == 0 && globalVersion == 0 ){
                 // this connection is cleaning itself
-                oldVersion = 0;
-                return 1;
+                info->setVersion( ns , 0 );
+                return true;
             }
 
             if ( version == 0 && globalVersion > 0 ){
@@ -439,15 +412,15 @@ namespace mongo {
                     result.appendTimestamp( "globalVersion" , globalVersion );
                     result.appendTimestamp( "oldVersion" , oldVersion );
                     errmsg = "dropping needs to be authoritative";
-                    return 0;
+                    return false;
                 }
                 log() << "wiping data for: " << ns << endl;
                 result.appendTimestamp( "beforeDrop" , globalVersion );
                 // only setting global version on purpose
                 // need clients to re-find meta-data
-                globalVersion = 0;
-                oldVersion = 0;
-                return 1;
+                shardingState.setVersion( ns , 0 );
+                info->setVersion( ns , 0 );
+                return true;
             }
 
             if ( version < oldVersion ){
@@ -478,17 +451,18 @@ namespace mongo {
                 return false;
             }
 
+            result.appendTimestamp( "oldVersion" , oldVersion );
+            result.append( "ok" , 1 );
+
+            info->setVersion( ns , version );
+            shardingState.setVersion( ns , version );
+
             {
                 dbtemprelease unlock;
-                shardingState.getChunkMatcher( ns );
+                shardingState.getChunkManager( ns );
             }
 
-            result.appendTimestamp( "oldVersion" , oldVersion );
-            oldVersion = version;
-            globalVersion = version;
-
-            result.append( "ok" , 1 );
-            return 1;
+            return true;
         }
         
     } setShardVersionCmd;
@@ -597,49 +571,4 @@ namespace mongo {
         return false;
     }
 
-    // --- ChunkMatcher ---
-
-    ChunkMatcher::ChunkMatcher( ConfigVersion version ) : _version( version ) {}
-
-    void ChunkMatcher::addRange( const BSONObj& min , const BSONObj& max ){
-        // get the key pattern if it hasn't yet
-        if (_key.isEmpty()){
-            BSONObjBuilder b;
-
-            BSONForEach(e, min) {
-                b.append(e.fieldName(), 1);
-            }
-
-            _key = b.obj();
-        }
-
-        //TODO debug mode only?
-        assert(min.nFields() == _key.nFields());
-        assert(max.nFields() == _key.nFields());
-
-        _map[min] = make_pair(min,max);
-    }
-
-    bool ChunkMatcher::belongsToMe( const BSONObj& key , const DiskLoc& loc ) const {
-        if ( _map.size() == 0 )
-            return false;
-        
-        BSONObj x = loc.obj().extractFields(_key);
-        
-        RangeMap::const_iterator a = _map.upper_bound( x );
-        if ( a != _map.begin() )
-            a--;
-        
-        bool good = x.woCompare( a->second.first ) >= 0 && x.woCompare( a->second.second ) < 0;
-#if 0
-        if ( ! good ){
-            cout << "bad: " << x << "\t" << a->second.first << "\t" << x.woCompare( a->second.first ) << "\t" << x.woCompare( a->second.second ) << endl;
-            for ( MyMap::const_iterator i=_map.begin(); i!=_map.end(); ++i ){
-                cout << "\t" << i->first << "\t" << i->second.first << "\t" << i->second.second << endl;
-            }
-        }
-#endif
-        return good;
-    }
-    
 }

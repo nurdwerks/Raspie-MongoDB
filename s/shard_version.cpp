@@ -67,7 +67,10 @@ namespace mongo {
             _map.erase( conn );
         }
 
-        mongo::mutex _mutex;  // protects state below
+        // protects _map
+        mongo::mutex _mutex;
+
+        // a map from a connection into ChunkManager's sequence number for each namespace
         map<DBClientBase*, map<string,unsigned long long> > _map;
 
     } connectionShardStatus;
@@ -108,7 +111,6 @@ namespace mongo {
         ShardChunkVersion version = 0;
         if ( isSharded ){
             version = manager->getVersion( Shard::make( conn.getServerAddress() ) );
-            assert( officialSequenceNumber == manager->getSequenceNumber() ); // this is to make sure there isn't a race condition
         }
         
         log(2) << " have to set shard version for conn: " << &conn << " ns:" << ns 

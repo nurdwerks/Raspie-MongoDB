@@ -22,58 +22,69 @@
 
 #include "pch.h"
 #include "mongommf.h"
+#include "../util/mongoutils/str.h"
+
+using namespace mongoutils;
 
 namespace mongo {
 
-#if !defined(_DEBUG)
-    ///*static*/ void* MongoMMF::switchToPrivateView(void *p) { return p; }
-#else
-    // see dur.h.
-    static map<void *, MongoMMF*> our_read_views;
-    static mutex our_views_mutex("");
-
-    /*static*/ void* MongoMMF::switchToPrivateView(void *readonly_ptr) { 
-        void *p = readonly_ptr;
-        assert( durable );
-        assert( debug );
-        mutex::scoped_lock lk(our_views_mutex);
-        std::map< void*, MongoMMF* >::iterator i = 
-            our_read_views.upper_bound(((char *)p)+1);
+    MongoMMF* PointerToMMF::_find(void *p, /*out*/ size_t& ofs) {
+        std::map< void*, MongoMMF* >::iterator i = _views.upper_bound(((char *)p)+1);
         i--;
 
-        bool ok = i != our_read_views.end();
+        bool ok = i != _views.end();
         if( ok ) {
             MongoMMF *mmf = i->second;
             assert( mmf );
+            size_t o = ((char *)p) - ((char*)i->first);
+            if( o < mmf->length() ) { 
+                ofs = o;
+                return mmf;
+            }
+        }
+        return 0;
+    }
 
-            size_t ofs = ((char *)p) - ((char*)mmf->_view_readonly);
+    /** find associated MMF object for a given pointer.
+        threadsafe
+        @param ofs out returns offset into the view of the pointer, if found.
+        @return the MongoMMF to which this pointer belongs. null if not found.
+    */
+    MongoMMF* PointerToMMF::find(void *p, /*out*/ size_t& ofs) {
+        mutex::scoped_lock lk(_m);
+        return _find(p, ofs);
+    }
 
-            if( ofs < mmf->length() ) { 
+    PointerToMMF privateViews;
+    static PointerToMMF ourReadViews; /// _DEBUG build use only (other than existance)
+
+    /*static*/ void* MongoMMF::switchToPrivateView(void *readonly_ptr) { 
+        assert( durable );
+        assert( debug );
+
+        void *p = readonly_ptr;
+
+        {
+            size_t ofs=0;
+            MongoMMF *mmf = ourReadViews.find(p, ofs);
+            if( mmf ) {
                 return ((char *)mmf->_view_private) + ofs;
             }
         }
 
-        if( 1 ) { 
-            static int once;
-            /* temp : not using MongoMMF yet for datafiles, just .ns.  more to do... */
-            if( once++ == 0 )
-                log() << "TEMP TODO _DURABLE : use mongommf for datafiles" << endl;
-            return p;
-        }
-
-        for( std::map<void*,MongoMMF*>::iterator i = our_read_views.begin(); i != our_read_views.end(); i++ ) { 
-            char *wl = (char *) i->second->_view_private;
-            char *wh = wl + i->second->length();
-            if( p >= wl && p < wh ) { 
-                log() << "dur: perf warning p=" << p << " is already in the writable view of " << i->second->filename() << endl;
+        {
+            size_t ofs=0;
+            MongoMMF *mmf = privateViews.find(p, ofs);
+            if( mmf ) {
+                log() << "dur: perf warning p=" << p << " is already in the writable view of " << mmf->filename() << endl;
                 return p;
             }
         }
-        log() << "switchToPrivateView error " << p << endl;
-        assert( false ); // did you call writing() with a pointer that isn't into a datafile?
-        return 0;
+
+        // did you call writing() with a pointer that isn't into a datafile?
+        log() << "error switchToPrivateView " << p << endl;
+        return p;
     }
-#endif
 
     /* switch to _view_write.  normally, this is a bad idea since your changes will not 
        show up in _view_private if there have been changes there; thus the leading underscore
@@ -82,41 +93,45 @@ namespace mongo {
     */
     /*static*/ void* MongoMMF::_switchToWritableView(void *p) { 
         RARELY log() << "todo dur not done switchtowritable" << endl;
-#if defined(_DEBUG)
-        return switchToPrivateView(p);
-#else
+        if( debug ) 
+            return switchToPrivateView(p);
         return p;
-#endif
+    }
+
+    void MongoMMF::setPath(string f) {
+        string suffix;
+        bool ok = str::rSplitOn(f, '.', _filePath, suffix);
+        uassert(13520, str::stream() << "MongoMMF only supports filenames in a certain format " << f, ok);
+        if( suffix == "ns" )
+            _fileSuffixNo = -1;
+        else 
+            _fileSuffixNo = (int) str::toUnsigned(suffix);
     }
 
     bool MongoMMF::open(string fname, bool sequentialHint) {
+        setPath(fname);
         _view_write = mapWithOptions(fname.c_str(), sequentialHint ? SEQUENTIAL : 0);
-        // temp : _view_private pending more work!
-        _view_private = _view_write;
-        if( _view_write ) { 
-             if( durable ) {
-#if defined(_DEBUG)
-                 _view_readonly = MemoryMappedFile::createReadOnlyMap();
-                 mutex::scoped_lock lk(our_views_mutex);
-                 our_read_views[_view_readonly] = this; 
-#endif
-             }
-            return true;
-        }
-        return false;
+        return finishOpening();
     }
 
     bool MongoMMF::create(string fname, unsigned long long& len, bool sequentialHint) { 
+        setPath(fname);
         _view_write = map(fname.c_str(), len, sequentialHint ? SEQUENTIAL : 0);
-        // temp : _view_private pending more work!
-        _view_private = _view_write;
+        return finishOpening();
+    }
+
+    bool MongoMMF::finishOpening() {
         if( _view_write ) {
             if( durable ) {
-#if defined(_DEBUG)
-                _view_readonly = MemoryMappedFile::createReadOnlyMap();
-                mutex::scoped_lock lk(our_views_mutex);
-                our_read_views[_view_readonly] = this;
-#endif
+                _view_private = createPrivateMap();
+                privateViews.add(_view_private, this);
+                if( debug )  {
+                    _view_readonly = MemoryMappedFile::createReadOnlyMap();
+                    ourReadViews.add(_view_readonly, this);
+                }
+            }
+            else { 
+                _view_private = _view_write;
             }
             return true;
         }
@@ -130,7 +145,7 @@ namespace mongo {
         return _view_private;
     }
 
-    MongoMMF::MongoMMF() {
+    MongoMMF::MongoMMF() : _dirty(false) {
         _view_write = _view_private = _view_readonly = 0; 
     }
 
@@ -139,12 +154,12 @@ namespace mongo {
     }
 
     /*virtual*/ void MongoMMF::close() {
-#if defined(_DEBUG) && defined(_DURABLE)
-        {
-            mutex::scoped_lock lk(our_views_mutex);
-            our_read_views.erase(_view_readonly);
+        if( durable ) {
+            privateViews.remove(_view_private);
+            if( debug ) {
+                ourReadViews.remove(_view_readonly);
+            }
         }
-#endif
         _view_write = _view_private = _view_readonly = 0;
         MemoryMappedFile::close();
     }

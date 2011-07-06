@@ -184,7 +184,7 @@ namespace mongo {
                 }
                 if( ok ) {
                     if( mem.upSince == 0 ) {
-                        log() << "replSet info " << h.toString() << " is now up" << rsLog;
+                        log() << "replSet info " << h.toString() << " is up" << rsLog;
                         mem.upSince = mem.lastHeartbeat;
                     }
                     mem.health = 1.0;
@@ -219,7 +219,7 @@ namespace mongo {
             bool changed = mem.changed(old);
             if( changed ) { 
                 if( old.hbstate != mem.hbstate ) 
-                    log() << "replSet " << h.toString() << ' ' << mem.hbstate.toString() << rsLog;
+                    log() << "replSet member " << h.toString() << ' ' << mem.hbstate.toString() << rsLog;
             }
             if( changed || now-last>4 ) {
                 last = now;
@@ -233,7 +233,7 @@ namespace mongo {
             if( mem.upSince || mem.downSince == 0 ) {
                 mem.upSince = 0;
                 mem.downSince = jsTime();
-                log() << "replSet info " << h.toString() << " is now down (or slow to respond): " << msg << rsLog;
+                log() << "replSet info " << h.toString() << " is down (or slow to respond): " << msg << rsLog;
             }
             mem.lastHeartbeatMsg = msg;
         }

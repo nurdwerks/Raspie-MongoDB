@@ -26,7 +26,7 @@
 #include "mongommf.h"
 
 namespace mongo {
-
+  
 	/* in the mongo source code, "client" means "database". */
 
     const int MaxDatabaseNameLen = 256; // max str len for the db name, including null char
@@ -128,37 +128,38 @@ namespace mongo {
         DiskLoc deletedList[Buckets];
         // ofs 168 (8 byte aligned)
         struct Stats {
-            storageLE<long long> datasize; //datasize and nrecords MUST Be adjacent code assumes!
-            storageLE<long long> nrecords;
-        } stats;
-        storageLE<int> lastExtentSize;
-        storageLE<int> nIndexes;
+            // datasize and nrecords MUST Be adjacent code assumes!
+            packedLE<long long>::t datasize; // this includes padding, but not record headers
+            packedLE<long long>::t nrecords;
+	} stats;
+        packedLE<int>::t lastExtentSize;
+        packedLE<int>::t nIndexes;
     private:
         // ofs 192
         IndexDetails _indexes[NIndexesBase];
     public:
         // ofs 352 (16 byte aligned)
-        storageLE<int> capped;
-        storageLE<int> max;                              // max # of objects for a capped table.  TODO: should this be 64 bit? 
-        storageLE<double> paddingFactor;                 // 1.0 = no padding.
+        packedLE<int>::t capped;
+        packedLE<int>::t max;                              // max # of objects for a capped table.  TODO: should this be 64 bit? 
+        packedLE<double>::t paddingFactor;                 // 1.0 = no padding.
         // ofs 386 (16)
-        storageLE<int> flags;
+        packedLE<int>::t flags;
         DiskLoc capExtent;
         DiskLoc capFirstNewRecord;
-        storageLE<unsigned short> dataFileVersion;       // NamespaceDetails version.  So we can do backward compatibility in the future. See filever.h
-        storageLE<unsigned short> indexFileVersion;
-        storageLE<unsigned long long> multiKeyIndexBits;
+        packedLE<unsigned short>::t dataFileVersion;       // NamespaceDetails version.  So we can do backward compatibility in the future. See filever.h
+        packedLE<unsigned short>::t indexFileVersion;
+        packedLE<unsigned long long>::t multiKeyIndexBits;
     private:
         // ofs 400 (16)
-        storageLE<unsigned long long> reservedA;
-        storageLE<long long> extraOffset;                // where the $extra info is located (bytes relative to this)
+        packedLE<unsigned long long>::t reservedA;
+        packedLE<long long>::t extraOffset;                // where the $extra info is located (bytes relative to this)
     public:
-        storageLE<int> backgroundIndexBuildInProgress;   // 1 if in prog
-        storageLE<unsigned> reservedB;
+        packedLE<int>::t backgroundIndexBuildInProgress;   // 1 if in prog
+        packedLE<unsigned>::t reservedB;
         // ofs 424 (8)
         struct Capped2 { 
-            storageLE<unsigned long long> cc2_ptr;       // see capped.cpp
-            storageLE<unsigned> fileNumber;
+            packedLE<unsigned long long>::t cc2_ptr;       // see capped.cpp
+            packedLE<unsigned>::t fileNumber;
         } capped2;
         char reserved[60];
         /*-------- end data 496 bytes */
@@ -166,12 +167,12 @@ namespace mongo {
         explicit NamespaceDetails( const DiskLoc &loc, bool _capped );
 
         class Extra { 
-            storageLE<long long> _next;
+            packedLE<long long>::t _next;
 		public:
             IndexDetails details[NIndexesExtra];
 		private:
-            storageLE<unsigned> reserved2;
-            storageLE<unsigned> reserved3;
+            packedLE<unsigned>::t reserved2;
+            packedLE<unsigned>::t reserved3;
 			Extra(const Extra&) { assert(false); }
 			Extra& operator=(const Extra& r) { assert(false); return *this; }
         public:
@@ -354,10 +355,10 @@ namespace mongo {
         friend class NamespaceIndex;
         struct ExtraOld {
             // note we could use this field for more chaining later, so don't waste it:
-            storageLE<unsigned long long> reserved1;
+            packedLE<unsigned long long>::t reserved1;
             IndexDetails details[NIndexesExtra];
-            storageLE<unsigned> reserved2;
-            storageLE<unsigned> reserved3;
+            packedLE<unsigned>::t reserved2;
+            packedLE<unsigned>::t reserved3;
         };
         BOOST_STATIC_ASSERT( NIndexesMax <= NIndexesBase + NIndexesExtra*2 );
         BOOST_STATIC_ASSERT( NIndexesMax <= 64 ); // multiKey bits

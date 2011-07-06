@@ -39,7 +39,7 @@
 #include "client.h"
 #include "restapi.h"
 #include "dbwebserver.h"
-#include "dur_journal.h"
+#include "dur.h"
 
 #if defined(_WIN32)
 # include "../util/ntservice.h"
@@ -217,6 +217,7 @@ namespace mongo {
 
             Message m;
             while ( 1 ) {
+                inPort->clearCounters();
 
                 if ( !dbMsgPort->recv(m) ) {
                     if( !cmdLine.quiet )
@@ -274,6 +275,8 @@ sendmore:
                         }
                     }
                 }
+
+                networkCounter.hit( inPort->getBytesIn() , inPort->getBytesOut() );
 
                 m.reset();
             }
@@ -562,9 +565,9 @@ sendmore:
             globalScriptEngine->setGetInterruptSpecCallback( jsGetInterruptSpecCallback );
         }
 
-        repairDatabasesAndCheckVersion();
+        dur::startup();
 
-        dur::openJournal();
+        repairDatabasesAndCheckVersion();
 
         /* we didn't want to pre-open all fiels for the repair check above. for regular
            operation we do for read/write lock concurrency reasons.
@@ -1090,7 +1093,6 @@ namespace mongo {
 #undef out
 
     void exitCleanly( ExitCode code ) {
-        goingAway = true;
         killCurrentOp.killAll();
         {
             dblock lk;

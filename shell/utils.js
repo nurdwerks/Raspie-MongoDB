@@ -1296,10 +1296,17 @@ rs.slaveOk = function () { return db.getMongo().setSlaveOk(); }
 rs.status = function () { return db._adminCommand("replSetGetStatus"); }
 rs.isMaster = function () { return db.isMaster(); }
 rs.initiate = function (c) { return db._adminCommand({ replSetInitiate: c }); }
-rs.reconfig = function(cfg) {
-  cfg.version = rs.conf().version + 1;
-
-  return db._adminCommand({ replSetReconfig: cfg });
+rs.reconfig = function (cfg) {
+    cfg.version = rs.conf().version + 1;
+    var res = null;
+    try {
+        res = db.adminCommand({ replSetReconfig: cfg });
+    }
+    catch (e) {
+        print("shell got exception during reconfig: " + e);
+        print("in some circumstances, the primary steps down and closes connections on a reconfig");
+    }
+    return res;
 }
 rs.add = function (hostport, arb) {
     var cfg = hostport;
@@ -1320,7 +1327,15 @@ rs.add = function (hostport, arb) {
             cfg.arbiterOnly = true;
     }
     c.members.push(cfg);
-    return db._adminCommand({ replSetReconfig: c });
+    var res = null;
+    try { 
+        res = db.adminCommand({ replSetReconfig: c });
+    }
+    catch (e) {
+        print("shell got exception during reconfig: " + e);
+        print("in some circumstances, the primary steps down and closes connections on a reconfig");
+    }
+    return res;
 }
 rs.stepDown = function (secs) { return db._adminCommand({ replSetStepDown:secs||60}); }
 rs.freeze = function (secs) { return db._adminCommand({replSetFreeze:secs}); }
@@ -1345,7 +1360,27 @@ rs.remove = function (hn) {
 };
 
 help = shellHelper.help = function (x) {
-    if (x == "connect") {
+    if (x == "mr") {
+        print("\nSee also http://www.mongodb.org/display/DOCS/MapReduce");
+        print("\nfunction mapf() {");
+        print("  // 'this' holds current document to inspect");
+        print("  emit(key, value);");
+        print("}");
+        print("\nfunction reducef(key,value_array) {");
+        print("  return reduced_value;");
+        print("}");
+        print("\ndb.mycollection.mapReduce(mapf, reducef[, options])");
+        print("\noptions");
+        print("{[query : <query filter object>]");
+        print(" [, sort : <sort the query.  useful for optimization>]");
+        print(" [, limit : <number of objects to return from collection>]");
+        print(" [, out : <output-collection name>]");
+        print(" [, keeptemp: <true|false>]");
+        print(" [, finalize : <finalizefunction>]");
+        print(" [, scope : <object where fields go into javascript global scope >]");
+        print(" [, verbose : true]}\n");
+        return;
+    } if (x == "connect") {
         print("\nNormally one specifies the server on the mongo shell command line.  Run mongo --help to see those options.");
         print("Additional connections may be opened:\n");
         print("    var x = new Mongo('host[:port]');");
@@ -1393,6 +1428,7 @@ help = shellHelper.help = function (x) {
     print("\t" + "help connect                 connecting to a db help");
     print("\t" + "help admin                   administrative help");
     print("\t" + "help misc                    misc things to know");
+    print("\t" + "help mr                      mapreduce help");
     print();
     print("\t" + "show dbs                     show database names");
     print("\t" + "show collections             show collections in current database");
@@ -1402,6 +1438,6 @@ help = shellHelper.help = function (x) {
     print("\t" + "db.foo.find()                list objects in collection foo");
     print("\t" + "db.foo.find( { a : 1 } )     list objects in foo where a == 1");
     print("\t" + "it                           result of the last line evaluated; use to further iterate");
-    print("\t" + "DBQuery.shellBatchSize = x   set default number of items to display on shell" );
+    print("\t" + "DBQuery.shellBatchSize = x   set default number of items to display on shell");
     print("\t" + "exit                         quit the mongo shell");
 }

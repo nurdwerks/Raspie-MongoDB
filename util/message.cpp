@@ -311,12 +311,12 @@ namespace mongo {
         ports.closeAll(mask);
     }
 
-    MessagingPort::MessagingPort(int _sock, const SockAddr& _far) : sock(_sock), piggyBackData(0), farEnd(_far), _timeout(), tag(0) {
+    MessagingPort::MessagingPort(int _sock, const SockAddr& _far) : sock(_sock), piggyBackData(0), _bytesIn(0), _bytesOut(0), farEnd(_far), _timeout(), tag(0) {
         _logLevel = 0;
         ports.insert(this);
     }
 
-    MessagingPort::MessagingPort( double timeout, int ll ) : tag(0) {
+    MessagingPort::MessagingPort( double timeout, int ll ) : _bytesIn(0), _bytesOut(0), tag(0) {
         _logLevel = ll;
         ports.insert(this);
         sock = -1;
@@ -455,6 +455,7 @@ namespace mongo {
                 throw;
             }
             
+            _bytesIn += len;
             m.setData(md, true);
             return true;
             
@@ -522,6 +523,7 @@ namespace mongo {
 
     // sends all data or throws an exception    
     void MessagingPort::send( const char * data , int len, const char *context ) {
+        _bytesOut += len;
         while( len > 0 ) {
             int ret = ::send( sock , data , len , portSendFlags );
             if ( ret == -1 ) {
@@ -700,10 +702,13 @@ namespace mongo {
     int getClientId(){
         return clientId.get();
     }
+
+    const int DEFAULT_MAX_CONN = 20000;
+    const int MAX_MAX_CONN = 20000;
     
     int getMaxConnections(){
 #ifdef _WIN32
-        return 20000;
+        return DEFAULT_MAX_CONN;
 #else
         struct rlimit limit;
         assert( getrlimit(RLIMIT_NOFILE,&limit) == 0 );
@@ -716,17 +721,30 @@ namespace mongo {
                << " max conn: " << max
                << endl;
         
-        if ( max > 20000 )
-            max = 20000;
+        if ( max > MAX_MAX_CONN )
+            max = MAX_MAX_CONN;
 
         return max;
 #endif
     }
 
     void checkTicketNumbers(){
-        connTicketHolder.resize( getMaxConnections() );
+        int want = getMaxConnections();
+        int current = connTicketHolder.outof();
+        if ( current != DEFAULT_MAX_CONN ){
+            if ( current < want ) {
+                // they want fewer than they can handle
+                // which is fine
+                log(1) << " only allowing " << current << " connections" << endl;
+                return;
+            }
+            if ( current > want ) {
+                log() << " --maxConns too high, can only handle " << want << endl;
+            }
+        }
+        connTicketHolder.resize( want );
     }
 
-    TicketHolder connTicketHolder(20000);
+    TicketHolder connTicketHolder(DEFAULT_MAX_CONN);
 
 } // namespace mongo

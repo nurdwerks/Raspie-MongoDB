@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <cstdio> // sscanf
 #include <ctime>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/thread/xtime.hpp>
 
 namespace mongo {
@@ -46,6 +48,29 @@ namespace mongo {
         char buf[32];
         assert(strftime(buf, sizeof(buf), fmt, &t) == 19);
         return buf;
+    }
+
+    inline boost::gregorian::date currentDate() {
+        boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();
+        return now.date();
+    }
+
+    // parses time of day in "hh:mm" format assuming 'hh' is 00-23
+    inline bool toPointInTime( const string& str , boost::posix_time::ptime* timeOfDay ) {
+        int hh = 0;
+        int mm = 0;
+        if ( 2 != sscanf( str.c_str() , "%d:%d" , &hh , &mm ) ) {
+            return false;
+        }
+        
+        // verify that time is well formed
+        if ( ( hh / 24 ) || ( mm / 60 ) ) {
+            return false;
+        }
+
+        boost::posix_time::ptime res( currentDate() , boost::posix_time::hours( hh ) + boost::posix_time::minutes( mm ) );
+        *timeOfDay = res;
+        return true;
     }
 
 #define MONGO_asctime _asctime_not_threadsafe_

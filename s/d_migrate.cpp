@@ -129,9 +129,11 @@ namespace mongo {
             log() << "moveChunk deleted: " << num << endl;
         }
     };
+
+    static const char * const cleanUpThreadName = "cleanupOldData";
     
     void _cleanupOldData( OldDataCleanup cleanup ){
-        Client::initThread( "cleanupOldData");
+        Client::initThread( cleanUpThreadName );
         log() << " (start) waiting to cleanup " << cleanup.ns << " from " << cleanup.min << " -> " << cleanup.max << "  # cursors:" << cleanup.initial.size() << endl;
 
         int loops = 0;
@@ -273,6 +275,14 @@ namespace mongo {
             switch ( opstr[0] ){
                 
             case 'd': {
+                
+                if ( getThreadName() == cleanUpThreadName ){
+                    // we don't want to xfer things we're cleaning
+                    // as then they'll be deleted on TO
+                    // which is bad
+                    return;
+                }
+                
                 // can't filter deletes :(
                 _deleted.push_back( ide.wrap() );
                 _memoryUsed += ide.size() + 5;
@@ -300,7 +310,7 @@ namespace mongo {
         }
 
         void xfer( list<BSONObj> * l , BSONObjBuilder& b , const char * name , long long& size , bool explode ){
-            static long long maxSize = 1024 * 1024;
+            const long long maxSize = 1024 * 1024;
             
             if ( l->size() == 0 || size > maxSize )
                 return;
@@ -720,6 +730,12 @@ namespace mongo {
 
             // 5.
             { 
+                // TODO SERVER-2024
+                // + 5.c kill isEmpty check by using ChunkMatcher knowledge and send the config updates on an applyOps format
+
+                // TODO SERVER-2119
+                // + 5.b check opReplicatedEnough on _recvChunkCommit TO-side
+
                 // 5.a
                 // we're under the collection lock here, so no other migrate can change maxVersion
                 migrateFromStatus.setInCriticalSection( true );
@@ -1063,6 +1079,17 @@ namespace mongo {
                 BSONObjIterator i( xfer["deleted"].Obj() );
                 while ( i.more() ){
                     BSONObj id = i.next().Obj();
+
+                    // do not apply deletes if they do not belong to the chunk being migrated
+                    BSONObj fullObj;
+                    if ( Helpers::findById( cc() , ns.c_str() , id, fullObj ) ) {
+                        if ( ! isInRange( fullObj , min , max ) ) {
+                            log() << "not applying out of range deletion: " << fullObj << endl;
+
+                            continue;
+                        }
+                    }
+
                     Helpers::removeRange( ns , id , id, false , true , cmdLine.moveParanoia ? &rs : 0 );
                     didAnything = true;
                 }
@@ -1224,6 +1251,8 @@ namespace mongo {
             assert( isInRange( BSON( "x" << 4 ) , min , max ) );
             assert( ! isInRange( BSON( "x" << 5 ) , min , max ) );
             assert( ! isInRange( BSON( "x" << 6 ) , min , max ) );
+
+            log(1) << "isInRangeTest passed" << endl;
         }
     } isInRangeTest;
 }
