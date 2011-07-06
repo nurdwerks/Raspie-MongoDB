@@ -1126,13 +1126,13 @@ def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
 
     # Look for __sync_add_and_fetch and __sync_fetch_and_add
     if conf.CheckFetchAndAdd():
-        env.Append( CPPFLAGS=" -DHAVE_SYNC_FETCH_AND_ADD" )
+        env.Append( CPPDEFINES = ["HAVE_SYNC_FETCH_AND_ADD"] )
     # Check if natural alignment is important
     if conf.CheckAlignment():
-        env.Append( CPPFLAGS=" -DALIGNMENT_IMPORTANT" )
+        env.Append( CPPDEFINES = ["ALIGNMENT_IMPORTANT"] )
     # Look for __sync_lock_test_and_set
     if conf.CheckTestAndSet():
-        env.Append( CPPFLAGS=" -DHAVE_SYNC_LOCK_TEST_AND_SET_4" )
+        env.Append( CPPDEFINES = ["HAVE_SYNC_LOCK_TEST_AND_SET_4"] )
        
     # 'tcmalloc' needs to be the last library linked. Please, add new libraries before this 
     # point.
