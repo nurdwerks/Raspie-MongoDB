@@ -62,10 +62,8 @@ namespace BtreeTests {
             char sub[17];
             sprintf( sub, "%.16llx", n );
             string val( len, ' ' );
-            for( int i = 0; i < len; i += 16 ) {
-                for( int j = 0; j < 16; ++j ) {
-                    val[ i + j ] = sub[ j ];
-                }
+            for( int i = 0; i < len; ++i ) {
+                val[ i ] = sub[ i % 16 ];
             }            
             return val;
         }        
@@ -1089,7 +1087,7 @@ namespace BtreeTests {
                 ASSERT( !( t->flags & Packed ) );
                 Ordering o = Ordering::make( id.keyPattern() );
                 int zero = 0;
-                t->pack( o, zero );
+                t->_packReadyForMod( o, zero );
                 ASSERT_EQUALS( 0, t->n );
                 ASSERT_EQUALS( 0, t->topSize );
                 ASSERT_EQUALS( BtreeBucket::bodySize(), t->emptySize );

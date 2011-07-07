@@ -90,6 +90,8 @@ namespace mongo {
         packedLE<unsigned short>::t _wasSize; // can be reused, value is 8192 in current pdfile version Apr2010
         packedLE<unsigned short>::t _reserved1; // zero
         packedLE<int>::t flags;
+
+        // basicInsert() assumes these three are together and in this order:
         packedLE<int>::t emptySize; // size of the empty region
         packedLE<int>::t topSize; // size of the data at the top of the bucket (keys are at the beginning or 'bottom')
         packedLE<int>::t n; // # of keys so far.
@@ -154,7 +156,7 @@ namespace mongo {
          * @keypos is where to insert -- inserted before that key #.  so keypos=0 is the leftmost one.
          *  keypos will be updated if keys are moved as a result of pack()
         */
-        bool basicInsert(const DiskLoc thisLoc, int &keypos, const DiskLoc recordLoc, const BSONObj& key, const Ordering &order);
+        bool basicInsert(const DiskLoc thisLoc, int &keypos, const DiskLoc recordLoc, const BSONObj& key, const Ordering &order) const;
         
         /**
          * @return true if works, false if not enough space
@@ -192,12 +194,15 @@ namespace mongo {
         int totalDataSize() const;
         // @return true if the key may be dropped by pack()
         bool mayDropKey( int index, int refPos ) const;
+
         /**
          * Pack the bucket to reclaim space from invalidated memory.
          * @refPos is an index in the bucket which will may be updated if we
          *  delete keys from the bucket
          */
-        void pack( const Ordering &order, int &refPos );
+        void _pack(const DiskLoc thisLoc, const Ordering &order, int &refPos) const;
+        void _packReadyForMod(const Ordering &order, int &refPos);
+
         /**
          * @return the size of non header data in this bucket if we were to
          * call pack().
@@ -393,9 +398,14 @@ namespace mongo {
         }
         static BtreeBucket* allocTemp(); /* caller must release with free() */
 
+        /** split bucket */
+        void split(DiskLoc thisLoc, int keypos, 
+                   DiskLoc recordLoc, const BSONObj& key,
+                   const Ordering& order, DiskLoc lchild, DiskLoc rchild, IndexDetails& idx);
+
         void _insertHere(DiskLoc thisLoc, int keypos,
                         DiskLoc recordLoc, const BSONObj& key, const Ordering &order,
-                        DiskLoc lchild, DiskLoc rchild, IndexDetails &idx);
+                        DiskLoc lchild, DiskLoc rchild, IndexDetails &idx) const;
         void insertHere(DiskLoc thisLoc, int keypos,
                         DiskLoc recordLoc, const BSONObj& key, const Ordering &order,
                         DiskLoc lchild, DiskLoc rchild, IndexDetails &idx) const;

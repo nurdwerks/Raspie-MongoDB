@@ -167,7 +167,7 @@ namespace mongo {
 
     }
 
-    bool ShardingState::needChunkManager( const string& ns ) const {
+    bool ShardingState::needShardChunkManager( const string& ns ) const {
         if ( ! _enabled )
             return false;
         
@@ -177,7 +177,7 @@ namespace mongo {
         return true;
     }
 
-    ShardChunkManagerPtr ShardingState::getChunkManager( const string& ns ){
+    ShardChunkManagerPtr ShardingState::getShardChunkManager( const string& ns ){
         ConfigVersion version;
         { 
             // check cache
@@ -189,7 +189,9 @@ namespace mongo {
             }
 
             version = it->second;
-            
+
+            // TODO SERVER-1849 pending drop work
+            // the manager should use the cached version only if the versions match exactly
             ShardChunkManagerPtr p = _chunks[ns];
             if ( p && p->getVersion() >= version ){
                 // our cached version is good, so just return
@@ -202,8 +204,8 @@ namespace mongo {
         const string c = (_configServer == _shardHost) ? "" /* local */ : _configServer;
         ShardChunkManagerPtr p( new ShardChunkManager( c , ns , _shardName ) );
 
-        // TODO 11-18-2010 verify that the version in _versions is compatible with _checks[ns]
-        // Eventually, the version that will be authoritative is the ShardChunkManager's
+        // TODO SERVER-1849 verify that the manager's version is exactly the one requested
+        // If not, do update _chunks, but fail the request.
         { 
             scoped_lock lk( _mutex );
             _chunks[ns] = p;
@@ -457,9 +459,13 @@ namespace mongo {
             info->setVersion( ns , version );
             shardingState.setVersion( ns , version );
 
+            // TODO SERVER-1849 pending drop work
+            // getShardChunkManager is assuming that the setVersion above were valid
+            // ideally, we'd call getShardChunkManager first, verify that 'version' is sound, and then update
+            // connection and global state
             {
                 dbtemprelease unlock;
-                shardingState.getChunkManager( ns );
+                shardingState.getShardChunkManager( ns );
             }
 
             return true;
