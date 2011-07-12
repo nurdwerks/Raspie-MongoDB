@@ -44,7 +44,7 @@ namespace mongo {
 
     inline BSONObj BSONElement::codeWScopeObject() const {
         assert( type() == CodeWScope );
-        int strSizeWNull = *(int *)( value() + 4 );
+        int strSizeWNull = readLE<int>( value() + 4 );
         return BSONObj( value() + 4 + 4 + strSizeWNull );
     }
 
@@ -324,15 +324,15 @@ namespace mongo {
             break;
         }
         case CodeWScope: {
-            int totalSize = *( int * )( value() );
+            int totalSize = readLE<int>( value() );
             massert( 10322 ,  "Invalid CodeWScope size", totalSize >= 8 );
-            int strSizeWNull = *( int * )( value() + 4 );
+            int strSizeWNull = readLE<int>( value() + 4 );
             massert( 10323 ,  "Invalid CodeWScope string size", totalSize >= strSizeWNull + 4 + 4 );
             massert( 10324 ,  "Invalid CodeWScope string size",
                      strSizeWNull > 0 &&
                      (strSizeWNull - 1) == mongo::strnlen( codeWScopeCode(), strSizeWNull ) );
             massert( 10325 ,  "Invalid CodeWScope size", totalSize >= strSizeWNull + 4 + 4 + 4 );
-            int objSize = *( int * )( value() + 4 + 4 + strSizeWNull );
+            int objSize = readLE<int>( value() + 4 + 4 + strSizeWNull );
             massert( 10326 ,  "Invalid CodeWScope object size", totalSize == 4 + 4 + strSizeWNull + objSize );
             // Subobject validation handled elsewhere.
         }

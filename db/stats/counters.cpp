@@ -23,23 +23,7 @@
 namespace mongo {
 
     OpCounters::OpCounters() {
-        int zero = 0;
-
-        BSONObjBuilder b;
-        b.append( "insert" , zero );
-        b.append( "query" , zero );
-        b.append( "update" , zero );
-        b.append( "delete" , zero );
-        b.append( "getmore" , zero );
-        b.append( "command" , zero );
-        _obj = b.obj();
-
-        _insert = (AtomicUInt*)_obj["insert"].value();
-        _query = (AtomicUInt*)_obj["query"].value();
-        _update = (AtomicUInt*)_obj["update"].value();
-        _delete = (AtomicUInt*)_obj["delete"].value();
-        _getmore = (AtomicUInt*)_obj["getmore"].value();
-        _command = (AtomicUInt*)_obj["command"].value();
+        _insert = _query = _update = _delete = _getmore = _command = 0;
     }
 
     void OpCounters::gotOp( int op , bool isCommand ) {
@@ -62,29 +46,38 @@ namespace mongo {
         default: log() << "OpCounters::gotOp unknown op: " << op << endl;
         }
     }
-
-    BSONObj& OpCounters::getObj() {
+    
+    BSONObj OpCounters::getObj(){
+        // Please explain
         const unsigned MAX = 1 << 30;
         RARELY {
-            bool wrap =
-            _insert->get() > MAX ||
-            _query->get() > MAX ||
-            _update->get() > MAX ||
-            _delete->get() > MAX ||
-            _getmore->get() > MAX ||
-            _command->get() > MAX;
-
-            if ( wrap ) {
-                _insert->zero();
-                _query->zero();
-                _update->zero();
-                _delete->zero();
-                _getmore->zero();
-                _command->zero();
+            bool wrap = 
+                _insert.get() > MAX || 
+                _query.get() > MAX || 
+                _update.get() > MAX || 
+                _delete.get() > MAX || 
+                _getmore.get() > MAX || 
+                _command.get() > MAX;
+            
+            if ( wrap ){
+                _insert.zero();
+                _query.zero();
+                _update.zero();
+                _delete.zero();
+                _getmore.zero();
+                _command.zero();
             }
 
         }
-        return _obj;
+        
+        BSONObjBuilder b;
+        b.append( "insert" , _insert );
+        b.append( "query" , _query );
+        b.append( "update" , _update );
+        b.append( "delete" , _delete );
+        b.append( "getmore" , _getmore );
+        b.append( "command" , _command );
+        return b.obj();
     }
 
     IndexCounters::IndexCounters() {

@@ -25,6 +25,7 @@
 #include "../util/text.h"
 #include "../util/queue.h"
 #include "../util/paths.h"
+#include "../util/bswap.h"
 
 namespace BasicTests {
 
@@ -252,6 +253,35 @@ namespace BasicTests {
         }
 
     };
+
+    class bswaptest {
+    public:
+
+        void run() {
+           {
+              unsigned long long a = 0x123456789abcdef0ULL;
+              ASSERT_EQUALS( 0xf0debc9a78563412ULL, byteSwap<unsigned long long>( a ) );
+           }
+           {
+              const char* a = "0123456789abcdefghijkl";
+              ASSERT_EQUALS( 0x3031323334353637ULL, readBE<unsigned long long>( a ) );
+              ASSERT_EQUALS( 0x3736353433323130ULL, readLE<unsigned long long>( a ) );
+              ASSERT_EQUALS( 0x3132333435363738ULL, readBE<unsigned long long>( a + 1 ) );
+              ASSERT_EQUALS( 0x3837363534333231ULL, readLE<unsigned long long>( a + 1 ) );
+              ASSERT_EQUALS( 0x30313233U, readBE<unsigned int>( a ) );
+              ASSERT_EQUALS( 0x34333231U, readLE<unsigned int>( a + 1 ) );
+           }
+           {
+              char a [] = { 0, 0, 0, 0, 0 ,0, 0xf0 ,0x3f };
+              ASSERT_EQUALS( 1.0, readLE<double>( a ) );
+              char b[8];
+              copyLE<double>( b, 1.0 );
+              ASSERT_EQUALS( 0, memcmp( a, b, 8 ) );
+           }
+        }
+        
+    };
+
 
     class AssertTests {
     public:
@@ -599,6 +629,7 @@ namespace BasicTests {
             add< stringbuildertests::reset2 >();
 
             add< sleeptest >();
+            add< bswaptest >();
             add< AssertTests >();
 
             add< ArrayTests::basic1 >();

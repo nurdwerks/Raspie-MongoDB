@@ -73,6 +73,7 @@ namespace mongo {
         }
 
         _m.header()->id = _id;
+
         _clientInfo->clearCurrentShards();
     }
 

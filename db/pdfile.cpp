@@ -441,7 +441,7 @@ namespace mongo {
         massert( 10357 ,  "shutdown in progress", ! inShutdown() );
         massert( 10358 ,  "bad new extent size", approxSize >= Extent::minSize() && approxSize <= Extent::maxSize() );
         massert( 10359 ,  "header==0 on new extent: 32 bit mmap space exceeded?", header() ); // null if file open failed
-        int ExtentSize = approxSize <= header()->unusedLength ? approxSize : header()->unusedLength;
+        int ExtentSize = approxSize <= header()->unusedLength ? approxSize : int( header()->unusedLength );
         DiskLoc loc;
         if ( ExtentSize < Extent::minSize() ) {
             /* not there could be a lot of looping here is db just started and
@@ -900,7 +900,8 @@ namespace mongo {
             }
             else {
                 DEV {
-                    unsigned long long *p = (unsigned long long *) todelete->data;
+                    packedLE<unsigned long long>::t *p = 
+                      &refLE<unsigned long long>(todelete->data);
                     *getDur().writing(p) = 0;
                     //DEV memset(todelete->data, 0, todelete->netLength()); // attempt to notice invalid reuse.
                 }
@@ -1594,7 +1595,7 @@ namespace mongo {
             r = (Record*) getDur().writingPtr(r, lenWHdr);
             if( addID ) {
                 /* a little effort was made here to avoid a double copy when we add an ID */
-                ((int&)*r->data) = *((int*) obuf) + newId->size();
+                copyLE<int>( r->data, readLE<int>( (char*)obuf  ) + newId->size() );
                 memcpy(r->data+4, newId->rawdata(), newId->size());
                 memcpy(r->data+4+newId->size(), ((char *)obuf)+4, addID-4);
             }

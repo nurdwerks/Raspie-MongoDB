@@ -142,6 +142,7 @@ namespace mongo {
                 *this << *t;
             return *this;
         }
+
         template< class T >
         Nullstream& operator<<(const T &t) {
             return operator<<( static_cast<const LazyString&>( LazyStringImpl< T >( t ) ) );

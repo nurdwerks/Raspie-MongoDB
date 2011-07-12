@@ -204,7 +204,7 @@ namespace mongo {
     }
 
     void CursorCache::gotKillCursors(Message& m ) {
-        int *x = (int *) m.singleData()->_data;
+        packedLE<int>::t *x = &refLE<int>( m.singleData()->_data );
         x++; // reserved
         int n = *x++;
 
@@ -215,9 +215,9 @@ namespace mongo {
 
         uassert( 13286 , "sent 0 cursors to kill" , n >= 1 );
         uassert( 13287 , "too many cursors to kill" , n < 30000 );
-
-        long long * cursors = (long long *)x;
-        for ( int i=0; i<n; i++ ) {
+        
+        packedLE<long long>::t* cursors = &refLE<long long>( x );
+        for ( int i=0; i<n; i++ ){
             long long id = cursors[i];
             LOG(_myLogLevel) << "CursorCache::gotKillCursors id: " << id << endl;
 

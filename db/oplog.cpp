@@ -101,7 +101,7 @@ namespace mongo {
         memcpy(p, partial.objdata(), size1);
 
         // adjust overall bson object size for the o: field
-        *(static_cast<unsigned*>(p)) += o.objsize() + 1/*fieldtype byte*/ + 2/*"o" fieldname*/;
+        refLE<unsigned>(p) += o.objsize() + 1/*fieldtype byte*/ + 2/*"o" fieldname*/;
 
         char *b = static_cast<char *>(p);
         b += size1;
@@ -265,7 +265,7 @@ namespace mongo {
         }
 
         append_O_Obj(r->data, partial, obj);
-
+ 
         context.getClient()->setLastOp( ts.asDate() );
 
         if ( logLevel >= 6 ) {

@@ -47,10 +47,13 @@ namespace mongo {
             return secs;
         }
         OpTime(Date_t date) {
-            reinterpret_cast<unsigned long long&>(*this) = date.millis;
+            i = date.millis;
+            secs = date.millis >> 32;
         }
+
         OpTime(ReplTime x) {
-            reinterpret_cast<unsigned long long&>(*this) = x;
+            i = x;
+            secs = x >> 32;
         }
         OpTime(unsigned a, unsigned b) {
             secs = a;
@@ -95,10 +98,11 @@ namespace mongo {
          bytes of overhead.
          */
         unsigned long long asDate() const {
-            return reinterpret_cast<const unsigned long long*>(&i)[0];
+            return ( (unsigned long long) secs ) << 32 | i;
         }
+
         long long asLL() const {
-            return reinterpret_cast<const long long*>(&i)[0];
+           return asDate();
         }
 
         bool isNull() const { return secs == 0; }
@@ -147,4 +151,16 @@ namespace mongo {
     };
 #pragma pack()
 
+    template<> inline ReplTime convert<OpTime,ReplTime>( OpTime src ) {
+       return src.asDate();
+    }
+
+    template<> inline OpTime convert<ReplTime, OpTime>( ReplTime src ) {
+       return src;
+    }
+
+    template<> struct packedLE<OpTime> {
+       typedef storageLE<OpTime, packed_storage<OpTime, ReplTime> > t;
+    };
+    
 } // namespace mongo

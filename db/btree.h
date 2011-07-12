@@ -33,10 +33,12 @@ namespace mongo {
         _KeyNode& writing() const;
         DiskLoc prevChildBucket; // the lchild
         DiskLoc recordLoc; // location of the record associated with the key
+        packedLE<unsigned short>::t _kdo;
+
         short keyDataOfs() const {
-            return (short) _kdo;
+            return _kdo;
         }
-        unsigned short _kdo;
+        
         void setKeyDataOfs(short s) {
             _kdo = s;
             assert(s>=0);
@@ -83,16 +85,15 @@ namespace mongo {
     protected:
         DiskLoc parent;
         DiskLoc nextChild; // child bucket off and to the right of the highest key.
-        unsigned short _wasSize; // can be reused, value is 8192 in current pdfile version Apr2010
-        unsigned short _reserved1; // zero
-        int flags;
+        packedLE<unsigned short>::t _wasSize; // can be reused, value is 8192 in current pdfile version Apr2010
+        packedLE<unsigned short>::t _reserved1; // zero
+        packedLE<int>::t flags;
 
         // basicInsert() assumes these three are together and in this order:
-        int emptySize; // size of the empty region
-        int topSize; // size of the data at the top of the bucket (keys are at the beginning or 'bottom')
-        int n; // # of keys so far.
-
-        int reserved;
+        packedLE<int>::t emptySize; // size of the empty region
+        packedLE<int>::t topSize; // size of the data at the top of the bucket (keys are at the beginning or 'bottom')
+        packedLE<int>::t n; // # of keys so far.
+        packedLE<int>::t reserved;
         char data[4];
     };
 

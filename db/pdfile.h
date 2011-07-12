@@ -157,8 +157,8 @@ namespace mongo {
 
     class DeletedRecord {
     public:
-        int lengthWithHeaders;
-        int extentOfs;
+        packedLE<int>::t lengthWithHeaders;
+        packedLE<int>::t extentOfs;
         DiskLoc nextDeleted;
         Extent* myExtent(const DiskLoc& myLoc) {
             return DataFileMgr::getExtent(DiskLoc(myLoc.a(), extentOfs));
@@ -179,10 +179,10 @@ namespace mongo {
     class Record {
     public:
         enum HeaderSizeValue { HeaderSize = 16 };
-        int lengthWithHeaders;
-        int extentOfs;
-        int nextOfs;
-        int prevOfs;
+        packedLE<int>::t lengthWithHeaders;
+        packedLE<int>::t extentOfs;
+        packedLE<int>::t nextOfs;
+        packedLE<int>::t prevOfs;
 
         /** be careful when referencing this that your write intent was correct */
         char data[4];
@@ -205,8 +205,8 @@ namespace mongo {
         DiskLoc getPrev(const DiskLoc& myLoc);
 
         struct NP {
-            int nextOfs;
-            int prevOfs;
+            packedLE<int>::t nextOfs;
+            packedLE<int>::t prevOfs;
         };
         NP* np() { return (NP*) &nextOfs; }
     };
@@ -219,7 +219,7 @@ namespace mongo {
     */
     class Extent {
     public:
-        unsigned magic;
+        packedLE<unsigned>::t magic;
         DiskLoc myLoc;
         DiskLoc xnext, xprev; /* next/prev extent for this namespace */
 
@@ -228,7 +228,7 @@ namespace mongo {
         */
         Namespace nsDiagnostic;
 
-        int length;   /* size of the extent, including these fields */
+        packedLE<int>::t length;   /* size of the extent, including these fields */
         DiskLoc firstRecord;
         DiskLoc lastRecord;
         char _extentData[4];
@@ -311,11 +311,11 @@ namespace mongo {
     */
     class DataFileHeader {
     public:
-        int version;
-        int versionMinor;
-        int fileLength;
+        packedLE<int>::t version;
+        packedLE<int>::t versionMinor;
+        packedLE<int>::t fileLength;
         DiskLoc unused; /* unused is the portion of the file that doesn't belong to any allocated extents. -1 = no more */
-        int unusedLength;
+        packedLE<int>::t unusedLength;
         char reserved[8192 - 4*4 - 8];
 
         char data[4];

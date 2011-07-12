@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include "../util/bswap.h"
+
 #include "jsobj.h"
 
 namespace mongo {
@@ -38,8 +40,8 @@ namespace mongo {
         (such as adding a virtual function)
      */
     class DiskLoc {
-        int _a;     // this will be volume, file #, etc. but is a logical value could be anything depending on storage engine
-        int ofs;
+        packedLE<int>::t _a;     // this will be volume, file #, etc. but is a logical value could be anything depending on storage engine
+        packedLE<int>::t ofs;
 
     public:
 
@@ -85,8 +87,9 @@ namespace mongo {
 
         int a() const { return _a; }
 
-        int& GETOFS()      { return ofs; }
+        packedLE<int>::t& GETOFS()      { return ofs; }
         int getOfs() const { return ofs; }
+
         void set(int a, int b) {
             _a=a;
             ofs=b;

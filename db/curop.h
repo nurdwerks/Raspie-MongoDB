@@ -46,8 +46,8 @@ namespace mongo {
         enum { TOO_BIG_SENTINEL = 1 } ;
         static BSONObj _tooBig; // { $msg : "query not recording (too large)" }
 
-        CachedBSONObj() {
-            _size = (int*)_buf;
+        CachedBSONObj(){
+            _size = &refLE<int>(_buf);
             reset();
         }
 
@@ -123,7 +123,7 @@ namespace mongo {
         void _reset( int sz ) { _size[0] = sz; }
 
         SpinLock _lock;
-        int * _size;
+        packedLE<int>::t* _size;
         char _buf[512];
     };
 

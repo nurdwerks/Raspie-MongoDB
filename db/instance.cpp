@@ -30,6 +30,7 @@
 #include "replpair.h"
 #include "../s/d_logic.h"
 #include "../util/file_allocator.h"
+#include "../util/array.h"
 #include "../util/goodies.h"
 #include "cmdline.h"
 #if !defined(_WIN32)
@@ -198,9 +199,12 @@ namespace mongo {
             QueryResult * msgdata = (QueryResult *) b.buf();
             b.decouple();
             QueryResult *qr = msgdata;
-            qr->_resultFlags() = ResultFlag_ErrSet;
+
+            qr->setResultFlags( ResultFlag_ErrSet );
+
             if ( e.getCode() == StaleConfigInContextCode )
                 qr->_resultFlags() |= ResultFlag_ShardConfigStale;
+
             qr->len = b.len();
             qr->setOperation(opReply);
             qr->cursorId = 0;
@@ -379,9 +383,10 @@ namespace mongo {
     } /* assembleResponse() */
 
     void receivedKillCursors(Message& m) {
-        int *x = (int *) m.singleData()->_data;
-        x++; // reserved
-        int n = *x++;
+        char *x = m.singleData()->_data;
+        x += 4; // reserved
+        int n = readLE<int>( x );
+        x += 4;
 
         assert( m.dataSize() == 8 + ( 8 * n ) );
 
@@ -390,8 +395,15 @@ namespace mongo {
             log( n < 30000 ? LL_WARNING : LL_ERROR ) << "receivedKillCursors, n=" << n << endl;
             assert( n < 30000 );
         }
+        
+        // Byteswap (maybe) and align the cursors
+        FastArray<long long> cursors( n );
+        for ( int i = 0; i < n; ++i ) {
+           cursors.push_back( readLE<long long>( x ) );
+           x += 8;
+        }
 
-        int found = ClientCursor::erase(n, (long long *) x);
+        int found = ClientCursor::erase(n, &cursors[0] );
 
         if ( logLevel > 0 || found != n ) {
             log( found == n ) << "killcursors: found " << found << " of " << n << endl;

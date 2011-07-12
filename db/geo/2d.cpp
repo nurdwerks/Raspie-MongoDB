@@ -443,6 +443,10 @@ namespace mongo {
                 BSONObj in = BSON( "x" << x << "y" << y );
                 GeoHash h = g._hash( in );
                 BSONObj out = g._unhash( h );
+                std::cerr << "in[x] = " << in[ "x" ].number() << endl;
+                std::cerr << "round(x) = " << round(x) 
+                          << "  out[\"x\"].number() " <<  out["x"].number() 
+                          << std::endl;
                 assert( round(x) == round( out["x"].number() ) );
                 assert( round(y) == round( out["y"].number() ) );
                 assert( round( in["x"].number() ) == round( out["x"].number() ) );
@@ -1819,7 +1823,7 @@ namespace mongo {
                 cout << "\t" << h.toString()
                      << "\t" << c.current()[g->_geo]
                      << "\t" << hex << h.getHash()
-                     << "\t" << hex << ((long long*)c.currKey().firstElement().binData(len))[0]
+                     << "\t" << hex << readLE<long long>( c.currKey().firstElement().binData(len) )
                      << "\t" << c.current()["_id"]
                      << endl;
                 c.advance();

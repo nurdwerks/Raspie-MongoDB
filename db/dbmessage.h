@@ -38,20 +38,28 @@ namespace mongo {
 
 #pragma pack(1)
     struct QueryResult : public MsgData {
-        long long cursorId;
-        int startingFrom;
-        int nReturned;
+        packedLE<long long>::t cursorId;
+        packedLE<int>::t       startingFrom;
+        packedLE<int>::t       nReturned;
+
         const char *data() {
-            return (char *) (((int *)&nReturned)+1);
+            return reinterpret_cast<char*>( &nReturned + 1 );
         }
-        int resultFlags() {
-            return dataAsInt();
+
+        packedLE<int>::t& _resultFlags() {
+           return dataAsInt();
         }
-        int& _resultFlags() {
-            return dataAsInt();
+
+        int resultFlags() const {
+            return getDataAsInt();
         }
+        
         void setResultFlagsToOk() {
             _resultFlags() = ResultFlag_AwaitCapable;
+        }
+
+        void setResultFlags( int resultFlags ) {
+           setDataAsInt( resultFlags );
         }
     };
 #pragma pack()
@@ -67,13 +75,13 @@ namespace mongo {
             // for received messages, Message has only one buffer
             theEnd = _m.singleData()->_data + _m.header()->dataLen();
             char *r = _m.singleData()->_data;
-            reserved = (int *) r;
+            reserved = &refLE<int>( r );
             data = r + 4;
             nextjsobj = data;
         }
 
         /** the 32 bit field before the ns */
-        int& reservedField() { return *reserved; }
+        packedLE<int>::t& reservedField() { return *reserved; }
 
         const char * getns() const {
             return data;
@@ -87,42 +95,44 @@ namespace mongo {
         }
 
         int getInt( int num ) const {
-            const int * foo = (const int*)afterNS();
-            return foo[num];
+            return readLE<int>( afterNS() + 4 * num );
         }
 
         int getQueryNToReturn() const {
             return getInt( 1 );
         }
 
-        /**
-         * get an int64 at specified offsetBytes after ns
-         */
-        long long getInt64( int offsetBytes ) const {
-            const char * x = afterNS();
-            x += offsetBytes;
-            const long long * ll = (const long long*)x;
-            return ll[0];
-        }
-
-        void resetPull() { nextjsobj = data; }
+        void resetPull(){ nextjsobj = data; }
         int pullInt() const { return pullInt(); }
-        int& pullInt() {
+
+        packedLE<int>::t& pullInt() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            int& i = *((int *)nextjsobj);
+            packedLE<int>::t& i = refLE<int>(nextjsobj);
             nextjsobj += 4;
             return i;
         }
-        long long pullInt64() const {
-            return pullInt64();
-        }
-        long long &pullInt64() {
+
+        /**
+         * get an int64 at specified offsetBytes after ns
+         */
+        long long getInt64() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            long long &i = *((long long *)nextjsobj);
-            nextjsobj += 8;
-            return i;
+            return readLE<long long>( nextjsobj );
+        }
+
+        long long pullInt64() {
+           long long ret = getInt64();
+           nextjsobj += 8;
+           return ret;
+        }
+
+        void pushInt64( long long toPush ) {
+           if ( nextjsobj == data )
+              nextjsobj += strlen(data) + 1; // skip namespace
+           copyLE<long long>( const_cast<char*>(nextjsobj), toPush );
+           nextjsobj += 8;
         }
 
         OID* getOID() const {
@@ -130,10 +140,9 @@ namespace mongo {
         }
 
         void getQueryStuff(const char *&query, int& ntoreturn) {
-            int *i = (int *) (data + strlen(data) + 1);
-            ntoreturn = *i;
-            i++;
-            query = (const char *) i;
+            query = data + strlen(data) + 1;
+            ntoreturn = readLE<int>( query );
+            query += 4;
         }
 
         /* for insert and update msgs */
@@ -172,7 +181,7 @@ namespace mongo {
 
     private:
         const Message& m;
-        int* reserved;
+        packedLE<int>::t* reserved;
         const char *data;
         const char *nextjsobj;
         const char *theEnd;
@@ -200,7 +209,7 @@ namespace mongo {
             if ( d.moreJSObjs() ) {
                 fields = d.nextJsObj();
             }
-            queryOptions = d.msg().header()->dataAsInt();
+            queryOptions = d.msg().header()->getDataAsInt();
         }
     };
 
@@ -220,9 +229,9 @@ namespace mongo {
         b.skip(sizeof(QueryResult));
         b.appendBuf(data, size);
         QueryResult *qr = (QueryResult *) b.buf();
-        qr->_resultFlags() = queryResultFlags;
+        qr->setResultFlags( queryResultFlags );
         qr->len = b.len();
-        qr->setOperation(opReply);
+        qr->setOperation( opReply );
         qr->cursorId = cursorId;
         qr->startingFrom = startingFrom;
         qr->nReturned = nReturned;
@@ -256,9 +265,9 @@ namespace mongo {
         QueryResult* msgdata = (QueryResult *) b.buf();
         b.decouple();
         QueryResult *qr = msgdata;
-        qr->_resultFlags() = queryResultFlags;
+        qr->setResultFlags( queryResultFlags );
         qr->len = b.len();
-        qr->setOperation(opReply);
+        qr->setOperation( opReply );
         qr->cursorId = 0;
         qr->startingFrom = 0;
         qr->nReturned = 1;

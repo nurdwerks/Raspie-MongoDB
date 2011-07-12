@@ -72,9 +72,10 @@ namespace mongo {
             }
 
             QueryResult *qr = (QueryResult*)b.buf();
-            qr->_resultFlags() = ResultFlag_ErrSet | ResultFlag_ShardConfigStale;
+
+            qr->setResultFlags( ResultFlag_ErrSet | ResultFlag_ShardConfigStale );
             qr->len = b.len();
-            qr->setOperation( opReply );
+            qr->setOperation(opReply);
             qr->cursorId = 0;
             qr->startingFrom = 0;
             qr->nReturned = 1;

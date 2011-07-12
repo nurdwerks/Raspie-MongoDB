@@ -106,6 +106,7 @@ const StringData _jscode_raw_utils =
 "\n" 
 "var start = new Date();\n" 
 "timeout = timeout || 30000;\n" 
+"timeout = timeout * 500;\n" 
 "interval = interval || 200;\n" 
 "var last;\n" 
 "while( 1 ) {\n" 

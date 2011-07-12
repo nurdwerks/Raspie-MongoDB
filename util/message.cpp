@@ -428,6 +428,9 @@ again:
             char *lenbuf = (char *) &len;
             int lft = 4;
             recv( lenbuf, lft );
+            
+            // Swap from little endian to native
+            len = littleEndian<int>( len );
 
             if ( len < 16 || len > 48000000 ) { // messages must be large enough for headers
                 if ( len == -1 ) {
@@ -458,6 +461,7 @@ again:
             md->len = len;
 
             char *p = (char *) &md->id;
+
             int left = len -4;
 
             try {
@@ -699,7 +703,7 @@ again:
     }
 
 
-    MSGID NextMsgId;
+    AtomicUInt NextMsgId;
 
     struct MsgStart {
         MsgStart() {

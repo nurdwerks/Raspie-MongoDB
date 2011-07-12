@@ -668,9 +668,12 @@ if nix:
     if has_option( "distcc" ):
         env["CXX"] = "distcc " + env["CXX"]
         
-    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch" )
+    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch " )
     # env.Append( " -Wconversion" ) TODO: this doesn't really work yet
-    if linux:
+    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch " )
+    env.Append( CPPFLAGS="-Wcast-align " )    
+
+    if linux and ( processor == "i386" or processor == "x86_64" ):
         env.Append( CPPFLAGS=" -Werror " )
         env.Append( CPPFLAGS=" -fno-builtin-memcmp " ) # glibc's memcmp is faster than gcc's
     env.Append( CXXFLAGS=" -Wnon-virtual-dtor " )
@@ -782,9 +785,52 @@ def bigLibString( myenv ):
         s += str( myenv["SLIBS"] )
     return s
 
+def CheckFetchAndAdd( context ):
+    context.Message( 'Checking for __sync_fetch_and_add ...' )
+    res = context.TryLink( """
+          int main() 
+          { 
+            int x; 
+            __sync_fetch_and_add(&x, 1); 
+            __sync_add_and_fetch(&x, 1);
+            return 0; 
+          }
+""", ".c" )
+    context.Result( res )
+    return res
 
-def doConfigure( myenv , needPcre=True , shell=False ):
-    conf = Configure(myenv)
+def CheckTestAndSet( context ):
+    context.Message( 'Checking for __sync_lock_test_and_set ...' )
+    res = context.TryLink( """
+          int main() 
+          { 
+            int x; 
+            __sync_lock_test_and_set(&x, 1);
+            return 0; 
+          }
+""", ".c" )
+    context.Result( res )
+    return res
+
+
+def CheckAlignment( context ):
+    oldCFLAGS = context.env['CFLAGS']
+    context.env['CFLAGS'] = " -Wcast-align -Werror "
+    context.Message( 'Checking if alignment is important ...' )
+    res = context.TryLink( """
+          int main(int argc, char** argv)
+          {
+              int* y = (int*)argv[0];
+              return *y;
+          }
+""", ".c" )
+    context.env['CFLAGS'] = oldCFLAGS
+    res = not res
+    context.Result( res )
+    return res
+   
+def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
+    conf = Configure(myenv, custom_tests = { 'CheckFetchAndAdd' : CheckFetchAndAdd, 'CheckAlignment' : CheckAlignment, 'CheckTestAndSet': CheckTestAndSet } )
     myenv["LINKFLAGS_CLEAN"] = list( myenv["LINKFLAGS"] )
     myenv["LIBS_CLEAN"] = list( myenv["LIBS"] )
 
@@ -797,6 +843,20 @@ def doConfigure( myenv , needPcre=True , shell=False ):
         if not conf.CheckLib( "stdc++" ):
             print( "can't find stdc++ library which is needed" );
             Exit(1)
+
+    def checkSyncAddAndFetch( conf ):
+       print( "Checking for __sync_fetch_and_add and __sync_add_and_fetch" )
+       prog = """
+          int main() 
+          { 
+            int x; 
+            __sync_fetch_and_add(&x, 1); 
+            __sync_add_and_fetch(&x, 1);
+            return 0; 
+          }
+"""
+       return conf.TryLink(prog, '.c')
+ 
 
     def myCheckLib( poss , failIfNotFound=False , staticOnly=False):
 
@@ -981,6 +1041,16 @@ def doConfigure( myenv , needPcre=True , shell=False ):
             if not found:
                 raise "can't find a static %s" % l
 
+    # Look for __sync_add_and_fetch and __sync_fetch_and_add
+    if conf.CheckFetchAndAdd():
+        env.Append( CPPDEFINES = ["HAVE_SYNC_FETCH_AND_ADD"] )
+    # Check if natural alignment is important
+    if conf.CheckAlignment():
+        env.Append( CPPDEFINES = ["ALIGNMENT_IMPORTANT"] )
+    # Look for __sync_lock_test_and_set
+    if conf.CheckTestAndSet():
+        env.Append( CPPDEFINES = ["HAVE_SYNC_LOCK_TEST_AND_SET_4"] )
+       
     # 'tcmalloc' needs to be the last library linked. Please, add new libraries before this 
     # point.
     if has_option( "heapcheck" ) and not shell:

@@ -1536,8 +1536,7 @@ namespace JsobjTests {
             {
                 char * crap = (char*)malloc( x.objsize() );
                 memcpy( crap , x.objdata() , x.objsize() );
-                int * foo = (int*)crap;
-                foo[0] = 123123123;
+                copyLE<int>( crap, 123123123 );
                 int state = 0;
                 try {
                     BSONObj y( crap , false );

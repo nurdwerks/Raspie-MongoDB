@@ -190,8 +190,8 @@ namespace mongo {
             }
             break;
         case BinData: {
-            int len = *(int *)( value() );
-            BinDataType type = BinDataType( *(char *)( (int *)( value() ) + 1 ) );
+            int len = readLE<int>( value() );
+            BinDataType type = BinDataType( (signed char)value()[4] );
             s << "{ \"$binary\" : \"";
             char *start = ( char * )( value() ) + sizeof( int ) + 1;
             base64::encode( s , start , len );
@@ -445,6 +445,7 @@ namespace mongo {
         }
         return -1;
     }
+
 
     /* Matcher --------------------------------------*/
 
@@ -1048,7 +1049,7 @@ namespace mongo {
             name=0;
             eoo=EOO;
         }
-        int totsize;
+        packedLE<int>::t totsize;
         char maxkey;
         char name;
         char eoo;
@@ -1062,7 +1063,7 @@ namespace mongo {
             name=0;
             eoo=EOO;
         }
-        int totsize;
+        packedLE<int>::t totsize;
         char minkey;
         char name;
         char eoo;
@@ -1075,7 +1076,7 @@ namespace mongo {
                 totsize = 5;
                 eoo = EOO;
             }
-            int totsize;
+            packedLE<int>::t totsize;
             char eoo;
         } js0;
     */
@@ -1217,7 +1218,7 @@ namespace mongo {
 
     void BSONElementManipulator::initTimestamp() {
         massert( 10332 ,  "Expected CurrentTime type", _element.type() == Timestamp );
-        unsigned long long &timestamp = *( reinterpret_cast< unsigned long long* >( value() ) );
+        packedLE<unsigned long long>::t& timestamp = refLE<unsigned long long>( value() );
         if ( timestamp == 0 )
             timestamp = OpTime::now().asDate();
     }

@@ -39,32 +39,32 @@ namespace mongo {
 
         /** Change the value, in place, of the number. */
         void setNumber(double d) {
-            if ( _element.type() == NumberDouble ) *reinterpret_cast< double * >( value() )  = d;
-            else if ( _element.type() == NumberInt ) *reinterpret_cast< int * >( value() ) = (int) d;
+            if ( _element.type() == NumberDouble ) copyLE< double >( value(), d );
+            else if ( _element.type() == NumberInt ) copyLE< int >( value(), d );
             else assert(0);
         }
         void SetNumber(double d) {
-            if ( _element.type() == NumberDouble )
-                *getDur().writing( reinterpret_cast< double * >( value() )  ) = d;
-            else if ( _element.type() == NumberInt )
-                *getDur().writing( reinterpret_cast< int * >( value() ) ) = (int) d;
+            if ( _element.type() == NumberDouble ) 
+                *getDur().writing( &refLE<double>( value() )  ) = d;
+            else if ( _element.type() == NumberInt ) 
+                *getDur().writing( &refLE<int>( value() ) ) = (int) d;
             else assert(0);
         }
         void setLong(long long n) {
             assert( _element.type() == NumberLong );
-            *reinterpret_cast< long long * >( value() ) = n;
+            copyLE<long long>( value(), n );
         }
         void SetLong(long long n) {
             assert( _element.type() == NumberLong );
-            *getDur().writing( reinterpret_cast< long long * >(value()) ) = n;
+            *getDur().writing( &refLE<long long>( value() ) ) = n;
         }
         void setInt(int n) {
             assert( _element.type() == NumberInt );
-            *reinterpret_cast< int * >( value() ) = n;
+            copyLE<int>( value(), n );
         }
         void SetInt(int n) {
             assert( _element.type() == NumberInt );
-            getDur().writingInt( *reinterpret_cast< int * >( value() ) ) = n;
+            getDur().writingInt( refLE<int>( value() ) ) = n;
         }
 
 

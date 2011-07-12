@@ -924,15 +924,15 @@ namespace mongo {
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
-        unsigned totsize;
+        packedLE<unsigned>::t totsize;
 
         char n;
         char nname[5];
-        double N;
+        packedLE<double>::t N;
 
         char s;
         char sname[7];
-        unsigned slen;
+        packedLE<unsigned>::t slen;
         char sval[10];
 
         char eoo;
@@ -944,17 +944,17 @@ namespace mongo {
 #pragma pack(1)
     struct JSObj2 {
         JSObj2() {
-            totsize=sizeof(JSObj2);
+            totsize = sizeof(JSObj2);
             s = String;
             strcpy_s(sname, 7, "abcdef");
             slen = 10;
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
-        unsigned totsize;
+        packedLE<unsigned>::t totsize;
         char s;
         char sname[7];
-        unsigned slen;
+        packedLE<unsigned>::t slen;
         char sval[10];
         char eoo;
     } js2;

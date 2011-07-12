@@ -400,7 +400,7 @@ namespace mongo {
         QueryResult *qr = (QueryResult *) b.buf();
         qr->len = b.len();
         qr->setOperation(opReply);
-        qr->_resultFlags() = resultFlags;
+        qr->setResultFlags( resultFlags );
         qr->cursorId = cursorid;
         qr->startingFrom = start;
         qr->nReturned = n;
@@ -1190,7 +1190,6 @@ namespace mongo {
         qr->setOperation(opReply);
         qr->startingFrom = 0;
         qr->nReturned = n;
-
         int duration = curop.elapsedMillis();
         bool dbprofile = curop.shouldDBProfile( duration );
         if ( dbprofile || duration >= cmdLine.slowMS ) {

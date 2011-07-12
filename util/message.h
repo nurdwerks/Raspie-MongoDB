@@ -28,7 +28,7 @@ namespace mongo {
     class Message;
     class MessagingPort;
     class PiggyBackData;
-    typedef AtomicUInt MSGID;
+    typedef unsigned MSGID;
 
     class Listener : boost::noncopyable {
     public:
@@ -226,15 +226,15 @@ namespace mongo {
     /* see http://www.mongodb.org/display/DOCS/Mongo+Wire+Protocol
     */
     struct MSGHEADER {
-        int messageLength; // total message size, including this
-        int requestID;     // identifier for this message
-        int responseTo;    // requestID from the original request
+        packedLE<int>::t messageLength; // total message size, including this
+        packedLE<int>::t requestID;     // identifier for this message
+        packedLE<int>::t responseTo;    // requestID from the original request
         //   (used in reponses from db)
-        int opCode;
+        packedLE<int>::t opCode;
     };
     struct OP_GETMORE : public MSGHEADER {
         MSGHEADER header;             // standard message header
-        int       ZERO_or_flags;      // 0 - reserved for future use
+        packedLE<int>::t       ZERO_or_flags;      // 0 - reserved for future use
         //cstring   fullCollectionName; // "dbname.collectionname"
         //int32     numberToReturn;     // number of documents to return
         //int64     cursorID;           // cursorID from the OP_REPLY
@@ -244,45 +244,55 @@ namespace mongo {
 #pragma pack(1)
     /* todo merge this with MSGHEADER (or inherit from it). */
     struct MsgData {
-        int len; /* len of the msg, including this field */
-        MSGID id; /* request/reply id's match... */
-        MSGID responseTo; /* id of the message we are responding to */
-        short _operation;
-        char _flags;
-        char _version;
+        packedLE<int>::t   len;       /* len of the msg, including this field */
+        packedLE<MSGID>::t id;        /* request/reply id's match... */
+        packedLE<MSGID>::t responseTo;/* id of the message we are responding to */
+        packedLE<short>::t _operation;
+        packedLE<signed char>::t _flags;
+        packedLE<signed char>::t _version;
+        char _data[4];
+
         int operation() const {
             return _operation;
         }
+
         void setOperation(int o) {
             _flags = 0;
             _version = 0;
             _operation = o;
         }
-        char _data[4];
 
-        int& dataAsInt() {
-            return *((int *) _data);
+        packedLE<int>::t& dataAsInt() {
+            return refLE<int>( _data );
         }
 
-        bool valid() {
+        int getDataAsInt() const {
+            return readLE<int>(_data);
+        }
+
+        void setDataAsInt( int val ) {
+            copyLE<int>( _data, val );
+        }
+        
+        bool valid() const {
             if ( len <= 0 || len > ( 4 * BSONObjMaxInternalSize ) )
                 return false;
+
             if ( _operation < 0 || _operation > 30000 )
                 return false;
             return true;
         }
 
-        long long getCursor() {
+        long long getCursor() const {
             assert( responseTo > 0 );
             assert( _operation == opReply );
-            long long * l = (long long *)(_data + 4);
-            return l[0];
+            return readLE<long long>( _data + 4 );
         }
 
-        int dataLen(); // len without header
+        int dataLen() const; // len without header
     };
     const int MsgDataHeaderSize = sizeof(MsgData) - 4;
-    inline int MsgData::dataLen() {
+    inline int MsgData::dataLen() const {
         return len - MsgDataHeaderSize;
     }
 #pragma pack()
@@ -416,7 +426,7 @@ namespace mongo {
             size_t dataLen = len + sizeof(MsgData) - 4;
             MsgData *d = (MsgData *) malloc(dataLen);
             memcpy(d->_data, msgdata, len);
-            d->len = fixEndian(dataLen);
+            d->len = dataLen;
             d->setOperation(operation);
             _setData( d, true );
         }

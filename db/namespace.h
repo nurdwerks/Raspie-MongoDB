@@ -129,37 +129,37 @@ namespace mongo {
         // ofs 168 (8 byte aligned)
         struct Stats {
             // datasize and nrecords MUST Be adjacent code assumes!
-            long long datasize; // this includes padding, but not record headers
-            long long nrecords;
-        } stats;
-        int lastExtentSize;
-        int nIndexes;
+            packedLE<long long>::t datasize; // this includes padding, but not record headers
+            packedLE<long long>::t nrecords;
+	} stats;
+        packedLE<int>::t lastExtentSize;
+        packedLE<int>::t nIndexes;
     private:
         // ofs 192
         IndexDetails _indexes[NIndexesBase];
     public:
         // ofs 352 (16 byte aligned)
-        int capped;
-        int max;                              // max # of objects for a capped table.  TODO: should this be 64 bit?
-        double paddingFactor;                 // 1.0 = no padding.
+        packedLE<int>::t capped;
+        packedLE<int>::t max;                              // max # of objects for a capped table.  TODO: should this be 64 bit?
+        packedLE<double>::t paddingFactor;                 // 1.0 = no padding.
         // ofs 386 (16)
-        int flags;
+        packedLE<int>::t flags;
         DiskLoc capExtent;
         DiskLoc capFirstNewRecord;
-        unsigned short dataFileVersion;       // NamespaceDetails version.  So we can do backward compatibility in the future. See filever.h
-        unsigned short indexFileVersion;
-        unsigned long long multiKeyIndexBits;
+        packedLE<unsigned short>::t dataFileVersion;       // NamespaceDetails version.  So we can do backward compatibility in the future. See filever.h
+        packedLE<unsigned short>::t indexFileVersion;
+        packedLE<unsigned long long>::t multiKeyIndexBits;
     private:
         // ofs 400 (16)
-        unsigned long long reservedA;
-        long long extraOffset;                // where the $extra info is located (bytes relative to this)
+        packedLE<unsigned long long>::t reservedA;
+        packedLE<long long>::t extraOffset;                // where the $extra info is located (bytes relative to this)
     public:
-        int indexBuildInProgress;   // 1 if in prog
-        unsigned reservedB;
+        packedLE<int>::t indexBuildInProgress;   // 1 if in prog
+        packedLE<unsigned>::t reservedB;
         // ofs 424 (8)
         struct Capped2 {
-            unsigned long long cc2_ptr;       // see capped.cpp
-            unsigned fileNumber;
+            packedLE<unsigned long long>::t cc2_ptr;       // see capped.cpp
+            packedLE<unsigned>::t fileNumber;
         } capped2;
         char reserved[60];
         /*-------- end data 496 bytes */
@@ -167,12 +167,12 @@ namespace mongo {
         explicit NamespaceDetails( const DiskLoc &loc, bool _capped );
 
         class Extra {
-            long long _next;
+            packedLE<long long>::t _next;
         public:
             IndexDetails details[NIndexesExtra];
         private:
-            unsigned reserved2;
-            unsigned reserved3;
+            packedLE<unsigned>::t reserved2;
+            packedLE<unsigned>::t reserved3;
             Extra(const Extra&) { assert(false); }
             Extra& operator=(const Extra& r) { assert(false); return *this; }
         public:
@@ -376,10 +376,10 @@ namespace mongo {
         friend class NamespaceIndex;
         struct ExtraOld {
             // note we could use this field for more chaining later, so don't waste it:
-            unsigned long long reserved1;
+            packedLE<unsigned long long>::t reserved1;
             IndexDetails details[NIndexesExtra];
-            unsigned reserved2;
-            unsigned reserved3;
+            packedLE<unsigned>::t reserved2;
+            packedLE<unsigned>::t reserved3;
         };
         /** Update cappedLastDelRecLastExtent() after capExtent changed in cappedTruncateAfter() */
         void cappedTruncateLastDelUpdate();
