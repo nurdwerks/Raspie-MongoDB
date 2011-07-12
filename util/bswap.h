@@ -131,6 +131,11 @@ namespace mongo {
          return *this;
       }
 
+      storageLE& operator^=( T other ) {
+         (*this) = T(*this) ^ other;
+         return *this;
+      }
+
      storageLE& operator++() {
          return (*this) += 1;
      }
@@ -191,14 +196,17 @@ namespace mongo {
   private:
      S _val;
   public:
+     
      packed_storage() {
      }
+     
 
      packed_storage& operator=( T val ) {
         storeLE<S>( &_val, convert<T,S>( val ) );
         return *this;
      }
 
+     
      packed_storage( T val ) {
         *this = val;
      }

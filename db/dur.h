@@ -104,7 +104,7 @@ namespace mongo {
             inline DiskLoc& writingDiskLoc(DiskLoc& d) { return *((DiskLoc*) writingPtr(&d, sizeof(d))); }
 
             /** Declare write intent for an int */
-            inline packedLE<int>::t& writingInt(const packedLE<int>::t& d) { return *((packedLE<int>::t*) writingPtr( &d, sizeof(d))); }
+            inline packedLE<int>::t& writingInt(const packedLE<int>::t& d) { return *((packedLE<int>::t*) writingPtr( &const_cast<packedLE<int>::t&>(d), sizeof(d))); } 
 
             /** "assume i've already indicated write intent, let me write"
                 redeclaration is fine too, but this is faster.

@@ -105,10 +105,10 @@ namespace mongo {
         void resetPull(){ nextjsobj = data; }
         int pullInt() const { return pullInt(); }
 
-        packedLE<int>::t& pullInt() {
+        const packedLE<int>::t& pullInt() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            packedLE<int>::t& i = refLE<int>(nextjsobj);
+            const packedLE<int>::t& i = refLE<int>(nextjsobj);
             nextjsobj += 4;
             return i;
         }
