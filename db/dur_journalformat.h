@@ -76,8 +76,8 @@ namespace mongo {
                 OpCode_Min         = 0xfffff000
             };
             union {
-                packedLE<unsigned>::t len;    // length in bytes of the data of the JEntry. does not include the JEntry header
-                packedLE<OpCodes>::t opcode;
+                little_pod<OpCodes> opcode;
+                little_pod<unsigned> len;    // length in bytes of the data of the JEntry. does not include the JEntry header
             };
 
             packedLE<unsigned>::t ofs;  // offset in file
@@ -91,8 +91,7 @@ namespace mongo {
             // char data[len] follows
 
             const char * srcData() const {
-                const int *i = &_fileNo;
-                return (const char *) (i+1);
+                return (const char *) (_fileNo + 1 );
             }
 
             int getFileNo() const { return _fileNo & (~LocalDbBit); }
@@ -124,7 +123,7 @@ namespace mongo {
 
                 md5(begin, len, hash);
             }
-            packedLE<unsigned>::t sentinel;
+            little<unsigned> sentinel;
             md5digest hash; // unsigned char[16]
             packedLE<unsigned long long>::t reserved;
             char magic[4]; // "\n\n\n\n"

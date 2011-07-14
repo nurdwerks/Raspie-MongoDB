@@ -159,8 +159,8 @@ namespace mongo {
        return src;
     }
 
-    template<> struct packedLE<OpTime> {
-       typedef storageLE<OpTime, packed_storage<OpTime, ReplTime> > t;
+    template<> struct storage_type<OpTime> {
+        typedef ReplTime t;
     };
     
 } // namespace mongo

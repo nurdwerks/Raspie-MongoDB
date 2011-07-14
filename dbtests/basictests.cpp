@@ -270,12 +270,17 @@ namespace BasicTests {
               ASSERT_EQUALS( 0x3837363534333231ULL, readLE<unsigned long long>( a + 1 ) );
               ASSERT_EQUALS( 0x30313233U, readBE<unsigned int>( a ) );
               ASSERT_EQUALS( 0x34333231U, readLE<unsigned int>( a + 1 ) );
+              ASSERT_EQUALS( 0x34333231U, little<unsigned int>::ref( a + 1 ) );
            }
            {
               char a [] = { 0, 0, 0, 0, 0 ,0, 0xf0 ,0x3f };
               ASSERT_EQUALS( 1.0, readLE<double>( a ) );
+              ASSERT_EQUALS( 1.0, little<double>::ref( a ) );
               char b[8];
               copyLE<double>( b, 1.0 );
+              ASSERT_EQUALS( 0, memcmp( a, b, 8 ) );
+              memset( b, 0xff, 8 );
+              little<double>::ref( b ) = 1.0;
               ASSERT_EQUALS( 0, memcmp( a, b, 8 ) );
            }
         }

@@ -293,7 +293,7 @@ namespace mongo {
         /** @return A hash code for the object */
         int hash() const {
             unsigned x = 0;
-            const char *p = objdata();
+            const signed char *p = (signed char*)objdata();
             for ( int i = 0; i < objsize(); i++ )
                 x = x * 131 + p[i];
             return (x & 0x7fffffff) | 0x8000000; // must be > 0
