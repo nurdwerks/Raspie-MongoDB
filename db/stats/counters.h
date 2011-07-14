@@ -41,6 +41,7 @@ namespace mongo {
         AtomicUInt * getGetMore(){ return &_getmore; }
         AtomicUInt * getCommand(){ return &_command; }
         
+        void incInsertInWriteLock(int n) { _insert.x += n; }
         void gotInsert(){ _insert++; }
         void gotQuery(){ _query++; }
         void gotUpdate(){ _update++; }
