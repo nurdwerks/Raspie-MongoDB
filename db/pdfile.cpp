@@ -1329,8 +1329,8 @@ namespace mongo {
             )
         }
     private:
-        int &nIndexes() { return getDur().writingInt( _d->nIndexes ); }
-        int &indexBuildInProgress() { return getDur().writingInt( _d->indexBuildInProgress ); }
+        packedLE<int>::t& nIndexes() { return getDur().writingInt( _d->nIndexes ); }
+        packedLE<int>::t& indexBuildInProgress() { return getDur().writingInt( _d->indexBuildInProgress ); }
         NamespaceDetails *_d;
     };
 
