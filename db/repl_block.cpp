@@ -136,7 +136,7 @@ namespace mongo {
             if ( Helpers::findOne( NS , ident.obj , res ) ) {
                 assert( res["syncedTo"].type() );
                 i.owned = false;
-                i.loc = &refLE<OpTime>( res["syncedTo"].value() );
+                i.loc = &refLE<OpTime>( (char*)res["syncedTo"].value() );
                 getDur().setNoJournal(i.loc, &last, sizeof(last));
                 return;
             }
