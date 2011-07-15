@@ -102,6 +102,13 @@ namespace mongo {
             return getInt( 1 );
         }
 
+        /**
+         * get an int64 at specified offsetBytes after ns
+         */
+        long long getInt64( int offsetBytes ) const {
+            return little<long long>::ref( afterNS() + offsetBytes );
+        }
+
         void resetPull(){ nextjsobj = data; }
         int pullInt() const { return pullInt(); }
 
@@ -113,25 +120,19 @@ namespace mongo {
             return i;
         }
 
-        /**
-         * get an int64 at specified offsetBytes after ns
-         */
-        long long getInt64() {
+        little<long long>& pullInt64() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            return readLE<long long>( nextjsobj );
-        }
-
-        long long pullInt64() {
-           long long ret = getInt64();
-           nextjsobj += 8;
-           return ret;
+            little<long long>& i = 
+                little<long long>::ref( const_cast<char*>( nextjsobj ) );
+            nextjsobj += 8;
+            return i;
         }
 
         void pushInt64( long long toPush ) {
            if ( nextjsobj == data )
               nextjsobj += strlen(data) + 1; // skip namespace
-           copyLE<long long>( const_cast<char*>(nextjsobj), toPush );
+           little<long long>::ref( const_cast<char*>(nextjsobj) ) = toPush;
            nextjsobj += 8;
         }
 
