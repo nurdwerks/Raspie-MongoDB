@@ -125,8 +125,10 @@ namespace mongo {
             if ( i.loc ) {
                 if( i.owned )
                     i.loc[0] = last;
-                else
-                    getDur().setNoJournal(i.loc, &last, sizeof(last));
+                else {
+                    packedLE<OpTime>::t tmpLast = last;
+                    getDur().setNoJournal(i.loc, &tmpLast, sizeof(tmpLast));
+                }
                 return;
             }
 
@@ -137,7 +139,8 @@ namespace mongo {
                 assert( res["syncedTo"].type() );
                 i.owned = false;
                 i.loc = &refLE<OpTime>( (char*)res["syncedTo"].value() );
-                getDur().setNoJournal(i.loc, &last, sizeof(last));
+                packedLE<OpTime>::t tmpLast = last;
+                getDur().setNoJournal(i.loc, &tmpLast, sizeof(tmpLast));
                 return;
             }
 
