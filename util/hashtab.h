@@ -43,7 +43,7 @@ namespace mongo {
     public:
         const char *name;
         struct Node {
-            int hash;
+            little<int> hash;
             Key k;
             Type value;
             bool inUse() {
@@ -54,8 +54,8 @@ namespace mongo {
             }
         };
         void* _buf;
-        int n;
-        int maxChain;
+        little<int> n;
+        little<int> maxChain;
 
         Node& nodes(int i) {
             Node *nodes = (Node *) _buf;
