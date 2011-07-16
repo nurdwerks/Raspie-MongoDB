@@ -812,6 +812,31 @@ def CheckTestAndSet( context ):
     context.Result( res )
     return res
 
+def CheckSwap32( context ):
+    context.Message( 'Checking for inline __builtin_bswap32 ...' )
+    res = context.TryCompile( """
+           int foo( int x ) {
+               return __builtin_bswap32( x );
+           }
+""", ".c" )
+    
+    res = res and not 'bswap' in context.lastTarget.get_contents()
+    
+    context.Result( res )
+    return res
+
+def CheckSwap64( context ):
+    context.Message( 'Checking for inline __builtin_bswap64 ...' )
+    res = context.TryCompile( """
+           long long foo( long long x ) {
+               return __builtin_bswap64( x );
+           }
+""", ".c" )
+    
+    res = res and not 'bswap' in context.lastTarget.get_contents()
+    
+    context.Result( res )
+    return res
 
 def CheckAlignment( context ):
     oldCFLAGS = context.env['CFLAGS']
@@ -830,7 +855,7 @@ def CheckAlignment( context ):
     return res
    
 def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
-    conf = Configure(myenv, custom_tests = { 'CheckFetchAndAdd' : CheckFetchAndAdd, 'CheckAlignment' : CheckAlignment, 'CheckTestAndSet': CheckTestAndSet } )
+    conf = Configure(myenv, custom_tests = { 'CheckFetchAndAdd' : CheckFetchAndAdd, 'CheckAlignment' : CheckAlignment, 'CheckTestAndSet': CheckTestAndSet, 'CheckSwap32' : CheckSwap32, 'CheckSwap64' : CheckSwap64 } )
     myenv["LINKFLAGS_CLEAN"] = list( myenv["LINKFLAGS"] )
     myenv["LIBS_CLEAN"] = list( myenv["LIBS"] )
 
@@ -1050,6 +1075,11 @@ def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
     # Look for __sync_lock_test_and_set
     if conf.CheckTestAndSet():
         env.Append( CPPDEFINES = ["HAVE_SYNC_LOCK_TEST_AND_SET_4"] )
+    # Look for inline __builtin_bswap32
+    if conf.CheckSwap32():
+        env.Append( CPPDEFINES = ["HAVE_BSWAP32"] )
+    if conf.CheckSwap64():
+        env.Append( CPPDEFINES = ["HAVE_BSWAP64"] )
        
     # 'tcmalloc' needs to be the last library linked. Please, add new libraries before this 
     # point.

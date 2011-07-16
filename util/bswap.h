@@ -11,7 +11,19 @@
 namespace mongo {
 
    // Generic (portable) byte swap function
-   template<class T> T byteSwap( T j ) {      
+   template<class T> T byteSwap( T j ) {
+       
+#ifdef HAVE_BSWAP32
+       if ( sizeof( T ) == 4 ) {
+           return __builtin_bswap32( j );
+       }
+#endif
+#ifdef HAVE_BSWAP64
+       if ( sizeof( T ) == 8 ) {
+           return __builtin_bswap64( j );
+       }
+#endif
+
       T retVal = 0;
       for ( unsigned i = 0; i < sizeof( T ); ++i ) {
          
@@ -194,12 +206,12 @@ namespace mongo {
    
   template<class T, class S> T loadLE( const S* data ) {
 #if defined(BOOST_LITTLE_ENDIAN) || !defined( ALIGNMENT_IMPORTANT )
-     return littleEndian<T>( *data );
+      return littleEndian<T>( *data );
 #else
       T retval = 0;
       const unsigned char* u_data = reinterpret_cast<const unsigned char*>( data );
       for( unsigned i = 0; i < sizeof( T ); ++i ) {
-         retval |= T( u_data[i] ) << ( 8 * i );
+          retval |= T( u_data[i] ) << ( 8 * i );
       }
       return retval;
 #endif
@@ -219,12 +231,12 @@ namespace mongo {
    
   template<class T, class S> T load_big( const S* data ) {
 #if defined(BOOST_BIG_ENDIAN) || !defined( ALIGNMENT_IMPORTANT )
-     return bigEndian<T>( *data );
+      return bigEndian<T>( *data );
 #else
       T retval = 0;
       const unsigned char* u_data = reinterpret_cast<const unsigned char*>( data );
       for( unsigned i = 0; i < sizeof( T ); ++i ) {
-         retval |= T( u_data[ sizeof(T) - 1 - i ] ) << ( 8 * i );
+          retval |= T( u_data[ sizeof(T) - 1 - i ] ) << ( 8 * i );
       }
       return retval;
 #endif
