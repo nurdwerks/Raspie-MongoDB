@@ -70,7 +70,7 @@ namespace {
     public:
         void run() {
 
-#if defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4) || defined(_WIN32)
+#if defined(HAVE_SYNC_LOCK_TEST_AND_SET_4) || defined(_WIN32)
 
             SpinLock spin;
             int counter = 0;
