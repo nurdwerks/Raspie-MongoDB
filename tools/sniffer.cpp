@@ -343,7 +343,8 @@ void processMessage( Connection& c , Message& m ) {
                 if ( m.operation() == mongo::dbGetMore ) {
                     DbMessage d( m );
                     d.pullInt();
-                    d.pushInt64( mapCursor[ c ][ d.getInt64() ] );
+                    mongo::little<long long> &cId = d.pullInt64();
+                    cId = mapCursor[ c ][ cId ];
                 }
                 Message response;
                 conn->port().call( m, response );
