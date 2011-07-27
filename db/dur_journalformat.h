@@ -28,7 +28,7 @@ namespace mongo {
         /** beginning header for a journal/j._<n> file
             there is nothing important int this header at this time.  except perhaps version #.
         */
-        struct JHeader {
+        struct JHeader : public endian_aware {
             JHeader() { }
             JHeader(string fname);
 
@@ -58,7 +58,7 @@ namespace mongo {
         /** "Section" header.  A section corresponds to a group commit.
             len is length of the entire section including header and footer.
         */
-        struct JSectHeader {
+        struct JSectHeader : public endian_aware {
             packedLE<unsigned>::t len;                  // length in bytes of the whole section
             packedLE<unsigned long long>::t seqNumber;  // sequence number that can be used on recovery to not do too much work
             packedLE<unsigned long long>::t fileId;     // matches JHeader::fileId
@@ -67,7 +67,7 @@ namespace mongo {
         /** an individual write operation within a group commit section.  Either the entire section should
             be applied, or nothing.  (We check the md5 for the whole section before doing anything on recovery.)
         */
-        struct JEntry {
+        struct JEntry : public endian_aware {
             enum OpCodes {
                 OpCode_Footer      = 0xffffffff,
                 OpCode_DbContext   = 0xfffffffe,
@@ -111,7 +111,7 @@ namespace mongo {
         };
 
         /** group commit section footer. md5 is a key field. */
-        struct JSectFooter {
+        struct JSectFooter : public endian_aware {
             JSectFooter(const void* begin, int len) { // needs buffer to compute hash
                 sentinel = JEntry::OpCode_Footer;
                 reserved = 0;
@@ -140,14 +140,14 @@ namespace mongo {
         };
 
         /** declares "the next entry(s) are for this database / file path prefix" */
-        struct JDbContext {
+        struct JDbContext : public endian_aware {
             JDbContext() : sentinel(JEntry::OpCode_DbContext) { }
             const packedLE<unsigned>::t sentinel;   // compare to JEntry::len -- zero is our sentinel
             //char dbname[];
         };
 
         /** "last sequence number" */
-        struct LSNFile {
+        struct LSNFile : public endian_aware {
             packedLE<unsigned>::t ver;
             packedLE<unsigned>::t reserved2;
             packedLE<unsigned long long>::t lsn;

@@ -84,7 +84,7 @@ namespace mongo {
         void appendBuf(const void *src, size_t len) { memcpy(grow((unsigned) len), src, len); }
 
         template<class T>
-        void appendStruct(const T& s) { appendBuf(&s, sizeof(T)); }
+        void appendStruct(const T& s) { STATIC_ASSERT_HAS_ENDIAN_AWARE_MARKER(T); appendBuf(&s, sizeof(T)); }
 
         void appendStr(const StringData &str , bool includeEOO = true ) {
             const unsigned len = str.size() + ( includeEOO ? 1 : 0 );

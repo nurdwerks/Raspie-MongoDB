@@ -381,6 +381,12 @@ namespace mongo {
   BOOST_STATIC_ASSERT( sizeof( little_pod<double> ) == 8 );
   BOOST_STATIC_ASSERT( sizeof( little<double> ) == 8 );
   BOOST_STATIC_ASSERT( sizeof( big<bool> ) == 1 );
+ 
+  /** Marker class to inherit from to mark that endianess has been taken care of */
+  struct endian_aware { typedef int endian_aware_t; };
+
+  /** To assert that a class has the endian aware marker */
+  #define STATIC_ASSERT_HAS_ENDIAN_AWARE_MARKER( T ) BOOST_STATIC_ASSERT( sizeof( typename T::endian_aware_t ) > 0 )
 
 }
 

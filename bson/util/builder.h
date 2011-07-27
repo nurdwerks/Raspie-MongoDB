@@ -133,6 +133,7 @@ namespace mongo {
 
         template<class T>
         void appendStruct(const T& s) {
+            STATIC_ASSERT_HAS_ENDIAN_AWARE_MARKER( T );
             appendBuf(&s, sizeof(T));
         }
 
