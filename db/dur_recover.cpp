@@ -433,7 +433,7 @@ namespace mongo {
             _recover(); // throws on interruption
         }
 
-        struct BufReaderY { int a,b; };
+        struct BufReaderY : public endian_aware { little<int> a,b; };
         class BufReaderUnitTest : public UnitTest {
         public:
             void run() {
