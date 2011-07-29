@@ -206,6 +206,16 @@ namespace mongo {
    
   template<class T, class S> T loadLE( const S* data ) {
 #if defined(BOOST_LITTLE_ENDIAN) || !defined( ALIGNMENT_IMPORTANT )
+#if defined(__powerpc__)
+      // Without this trick gcc (4.4.5) compiles 64 bit load to 8 byte loads.
+      if ( sizeof( T ) == 8 ) {
+          const unsigned * x = reinterpret_cast<const unsigned*>( data );
+          unsigned long long a = loadLE<unsigned, unsigned>( x );
+          unsigned long long b = loadLE<unsigned, unsigned>( x + 1 ); 
+          return a | ( b << 32 );
+      }
+#endif
+
       return littleEndian<T>( *data );
 #else
       T retval = 0;
