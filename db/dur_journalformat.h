@@ -91,7 +91,7 @@ namespace mongo {
             // char data[len] follows
 
             const char * srcData() const {
-                return (const char *) (_fileNo + 1 );
+                return (const char *) (&_fileNo + 1 );
             }
 
             int getFileNo() const { return _fileNo & (~LocalDbBit); }
