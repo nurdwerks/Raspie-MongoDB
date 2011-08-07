@@ -43,7 +43,7 @@ namespace mongo {
         unsigned p = ourPid();
         x._pid ^= (unsigned short) p;
         // when the pid is greater than 16 bits, let the high bits modulate the machine id field.
-        packedLE<unsigned short>::t& rest = refLE<unsigned short> (&x._machineNumber[1]);
+        little<unsigned short>& rest = little<unsigned short>::ref (&x._machineNumber[1]);
         rest ^= p >> 16;
     }
 
@@ -82,7 +82,7 @@ namespace mongo {
         x[1] = ourMachineAndPid._machineNumber[1];
         x[2] = ourMachineAndPid._machineNumber[2];
         x[3] = 0;
-        return refLE<unsigned>( x );
+        return little<unsigned>::ref( x );
     }
 
     void OID::justForked() {
@@ -128,9 +128,9 @@ namespace mongo {
         copyBE<unsigned>( data, time );
 
         if (max)
-            refLE<long long>(data + 4) = 0xFFFFFFFFFFFFFFFFll;
+            little<long long>::ref(data + 4) = 0xFFFFFFFFFFFFFFFFll;
         else
-            refLE<long long>(data + 4) = 0x0000000000000000ll;
+            little<long long>::ref(data + 4) = 0x0000000000000000ll;
     }
 
     time_t OID::asTimeT() {

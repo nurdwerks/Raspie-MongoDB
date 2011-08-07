@@ -157,8 +157,8 @@ namespace mongo {
 
     class DeletedRecord {
     public:
-        packedLE<int>::t lengthWithHeaders;
-        packedLE<int>::t extentOfs;
+        little<int> lengthWithHeaders;
+        little<int> extentOfs;
         DiskLoc nextDeleted;
         Extent* myExtent(const DiskLoc& myLoc) {
             return DataFileMgr::getExtent(DiskLoc(myLoc.a(), extentOfs));
@@ -179,10 +179,10 @@ namespace mongo {
     class Record {
     public:
         enum HeaderSizeValue { HeaderSize = 16 };
-        packedLE<int>::t lengthWithHeaders;
-        packedLE<int>::t extentOfs;
-        packedLE<int>::t nextOfs;
-        packedLE<int>::t prevOfs;
+        little<int> lengthWithHeaders;
+        little<int> extentOfs;
+        little<int> nextOfs;
+        little<int> prevOfs;
 
         /** be careful when referencing this that your write intent was correct */
         char data[4];
@@ -205,8 +205,8 @@ namespace mongo {
         DiskLoc getPrev(const DiskLoc& myLoc);
 
         struct NP {
-            packedLE<int>::t nextOfs;
-            packedLE<int>::t prevOfs;
+            little<int> nextOfs;
+            little<int> prevOfs;
         };
         NP* np() { return (NP*) &nextOfs; }
     };
@@ -219,7 +219,7 @@ namespace mongo {
     */
     class Extent {
     public:
-        packedLE<unsigned>::t magic;
+        little<unsigned> magic;
         DiskLoc myLoc;
         DiskLoc xnext, xprev; /* next/prev extent for this namespace */
 
@@ -228,7 +228,7 @@ namespace mongo {
         */
         Namespace nsDiagnostic;
 
-        packedLE<int>::t length;   /* size of the extent, including these fields */
+        little<int> length;   /* size of the extent, including these fields */
         DiskLoc firstRecord;
         DiskLoc lastRecord;
         char _extentData[4];
@@ -311,11 +311,11 @@ namespace mongo {
     */
     class DataFileHeader {
     public:
-        packedLE<int>::t version;
-        packedLE<int>::t versionMinor;
-        packedLE<int>::t fileLength;
+        little<int> version;
+        little<int> versionMinor;
+        little<int> fileLength;
         DiskLoc unused; /* unused is the portion of the file that doesn't belong to any allocated extents. -1 = no more */
-        packedLE<int>::t unusedLength;
+        little<int> unusedLength;
         char reserved[8192 - 4*4 - 8];
 
         char data[4];

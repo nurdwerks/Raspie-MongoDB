@@ -64,7 +64,7 @@ namespace mongo {
                 }
             }
             bool owned; // true if loc is a pointer of our creation (and not a pointer into a MMF)
-            packedLE<OpTime>::t* loc;
+            little<OpTime>* loc;
         };
 
         SlaveTracking() : _mutex("SlaveTracking") {
@@ -126,7 +126,7 @@ namespace mongo {
                 if( i.owned )
                     i.loc[0] = last;
                 else {
-                    packedLE<OpTime>::t tmpLast = last;
+                    little<OpTime> tmpLast = last;
                     getDur().setNoJournal(i.loc, &tmpLast, sizeof(tmpLast));
                 }
                 return;
@@ -138,14 +138,14 @@ namespace mongo {
             if ( Helpers::findOne( NS , ident.obj , res ) ) {
                 assert( res["syncedTo"].type() );
                 i.owned = false;
-                i.loc = &refLE<OpTime>( (char*)res["syncedTo"].value() );
-                packedLE<OpTime>::t tmpLast = last;
+                i.loc = &little<OpTime>::ref( (char*)res["syncedTo"].value() );
+                little<OpTime> tmpLast = last;
                 getDur().setNoJournal(i.loc, &tmpLast, sizeof(tmpLast));
                 return;
             }
 
             i.owned = true;
-            i.loc = new packedLE<OpTime>::t[1];
+            i.loc = new little<OpTime>[1];
             i.loc[0] = last;
             _dirty = true;
 

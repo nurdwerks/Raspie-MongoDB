@@ -45,9 +45,9 @@ namespace mongo {
         }
         void SetNumber(double d) {
             if ( _element.type() == NumberDouble ) 
-                *getDur().writing( &refLE<double>( value() )  ) = d;
+                *getDur().writing( &little<double>::ref( value() )  ) = d;
             else if ( _element.type() == NumberInt ) 
-                *getDur().writing( &refLE<int>( value() ) ) = (int) d;
+                *getDur().writing( &little<int>::ref( value() ) ) = (int) d;
             else assert(0);
         }
         void setLong(long long n) {
@@ -56,7 +56,7 @@ namespace mongo {
         }
         void SetLong(long long n) {
             assert( _element.type() == NumberLong );
-            *getDur().writing( &refLE<long long>( value() ) ) = n;
+            *getDur().writing( &little<long long>::ref( value() ) ) = n;
         }
         void setInt(int n) {
             assert( _element.type() == NumberInt );
@@ -64,7 +64,7 @@ namespace mongo {
         }
         void SetInt(int n) {
             assert( _element.type() == NumberInt );
-            getDur().writingInt( refLE<int>( value() ) ) = n;
+            getDur().writingInt( little<int>::ref( value() ) ) = n;
         }
 
 

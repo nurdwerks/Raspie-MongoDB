@@ -403,7 +403,7 @@ namespace mongo {
             size_t amt = fread(buf, 1, 4, file);
             assert( amt == 4 );
 
-            int size = refLE<int>( buf );
+            int size = little<int>::ref( buf );
             uassert( 10264 , str::stream() << "invalid object size: " << size , size < BUF_SIZE );
 
             amt = fread(buf+4, 1, size-4, file);

@@ -40,8 +40,8 @@ namespace mongo {
         (such as adding a virtual function)
      */
     class DiskLoc {
-        packedLE<int>::t _a;     // this will be volume, file #, etc. but is a logical value could be anything depending on storage engine
-        packedLE<int>::t ofs;
+        little<int> _a;     // this will be volume, file #, etc. but is a logical value could be anything depending on storage engine
+        little<int> ofs;
 
     public:
 
@@ -87,7 +87,7 @@ namespace mongo {
 
         int a() const { return _a; }
 
-        packedLE<int>::t& GETOFS()      { return ofs; }
+        little<int>& GETOFS()      { return ofs; }
         int getOfs() const { return ofs; }
 
         void set(int a, int b) {

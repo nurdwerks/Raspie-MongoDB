@@ -9,6 +9,7 @@
 #include <string.h>
 
 namespace mongo {
+   class Nullstream;
 
    // Generic (portable) byte swap function
    template<class T> T byteSwap( T j ) {
@@ -91,28 +92,6 @@ namespace mongo {
       return src;
    }
 
-   class Nullstream;
-
-   template<class T> struct aligned_storage {
-   private:
-      T _val;
-   public:
-      aligned_storage() {
-      }
-      
-      aligned_storage( T val ) {
-         _val = littleEndian<T>(val);
-      }
-      
-      operator T() const {
-         return littleEndian<T>(_val);
-     }
-   };
-
-  template<> struct aligned_storage<bool> {
-  private:
-     char _val;
-  };
 
 #define MONGO_ENDIAN_BODY( MYTYPE, BASE_TYPE, T )                       \
       MYTYPE& operator=( const T& val ) {                               \
@@ -177,20 +156,6 @@ namespace mongo {
           return ost << T(val);                                         \
       }
   
-
-  template<class T, class S = aligned_storage<T> > class storageLE {
-  private:
-     S _val;
-     typedef storageLE<T,S> this_type;
-  public:
-      storageLE() {}
-
-      storageLE( T val ) {
-         (*this) = val;
-      }
-  
-      MONGO_ENDIAN_BODY( storageLE, this_type, T );
-  };
 
   template<class T, class D> void storeLE( D* dest, T src ) {
 #if defined(BOOST_LITTLE_ENDIAN) || !defined( ALIGNMENT_IMPORTANT )
@@ -303,34 +268,8 @@ namespace mongo {
      }
   } __attribute__((packed)) ;
 
-
-  template<class T> struct packedLE {
-     typedef storageLE<T, packed_little_storage<T> > t;
-  };
-
-  BOOST_STATIC_ASSERT( sizeof( packedLE<bool>::t ) == 1 );
 #pragma pack()
   
-  // Helper functions which will replace readLE. Can be used as pointers as well
-  template<class T> const typename packedLE<T>::t& refLE( const void* data ) {
-     return *reinterpret_cast<const typename packedLE<T>::t*>( data );
-  }
-  
-  template<class T> typename packedLE<T>::t& refLE( void* data ) {
-     return *reinterpret_cast<typename packedLE<T>::t*>( data );
-  }
-
-  template<class T> void copyLE( char* dest, T src ) {
-      refLE<T>( dest ) = src;
-  }
-
-  template<class T> void copyLE( void* dest, T src ) {
-     copyLE<T>( reinterpret_cast<char*>( dest ), src );
-  }
-
-  template<class T> T readLE( const char* data ) {
-     return refLE<T>( data );
-  }
 
 #define MONGO_ENDIAN_REF_FUNCS( TYPE )                          \
       static TYPE& ref( void* src ) {                           \
@@ -379,8 +318,17 @@ namespace mongo {
       MONGO_ENDIAN_BODY( big, big_pod<T>, T );
   };
 
+  // Helper functions
+  template<class T> T readLE( const void* data ) {
+      return little<T>::ref( data );
+  }
+
   template<class T> T readBE( const void* data ) {
       return big<T>::ref( data );
+  }
+
+  template<class T> void copyLE( void* dest, T src ) {
+      little<T>::ref( dest ) = src;
   }
 
   template<class T> void copyBE( void* dest, T src ) {
@@ -391,6 +339,7 @@ namespace mongo {
   BOOST_STATIC_ASSERT( sizeof( little_pod<double> ) == 8 );
   BOOST_STATIC_ASSERT( sizeof( little<double> ) == 8 );
   BOOST_STATIC_ASSERT( sizeof( big<bool> ) == 1 );
+  BOOST_STATIC_ASSERT( sizeof( little<bool> ) == 1 );
  
   /** Marker class to inherit from to mark that endianess has been taken care of */
   struct endian_aware { typedef int endian_aware_t; };
