@@ -8,6 +8,10 @@
 #include "boost/static_assert.hpp"
 #include <string.h>
 
+#ifdef __APPLE__
+#  include <libkern/OSByteOrder.h>
+#endif
+
 namespace mongo {
 
    // Generic (portable) byte swap function
@@ -205,6 +209,17 @@ namespace mongo {
    }
    
   template<class T, class S> T loadLE( const S* data ) {
+#ifdef __APPLE__
+      switch ( sizeof( T ) ) {
+      case 8:
+          return OSReadLittleInt64( data, 0 );
+      case 4:
+          return OSReadLittleInt32( data, 0 );
+      case 2:
+          return OSReadLittleInt16( data, 0 );
+      }
+#endif
+
 #if defined(BOOST_LITTLE_ENDIAN) || !defined( ALIGNMENT_IMPORTANT )
 #if defined(__powerpc__)
       // Without this trick gcc (4.4.5) compiles 64 bit load to 8 byte loads.
@@ -215,7 +230,6 @@ namespace mongo {
           return a | ( b << 32 );
       }
 #endif
-
       return littleEndian<T>( *data );
 #else
       T retval = 0;
