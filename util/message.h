@@ -226,15 +226,15 @@ namespace mongo {
     /* see http://www.mongodb.org/display/DOCS/Mongo+Wire+Protocol
     */
     struct MSGHEADER {
-        packedLE<int>::t messageLength; // total message size, including this
-        packedLE<int>::t requestID;     // identifier for this message
-        packedLE<int>::t responseTo;    // requestID from the original request
+        little<int> messageLength; // total message size, including this
+        little<int> requestID;     // identifier for this message
+        little<int> responseTo;    // requestID from the original request
         //   (used in reponses from db)
-        packedLE<int>::t opCode;
+        little<int> opCode;
     };
     struct OP_GETMORE : public MSGHEADER {
         MSGHEADER header;             // standard message header
-        packedLE<int>::t       ZERO_or_flags;      // 0 - reserved for future use
+        little<int>       ZERO_or_flags;      // 0 - reserved for future use
         //cstring   fullCollectionName; // "dbname.collectionname"
         //int32     numberToReturn;     // number of documents to return
         //int64     cursorID;           // cursorID from the OP_REPLY
@@ -244,12 +244,12 @@ namespace mongo {
 #pragma pack(1)
     /* todo merge this with MSGHEADER (or inherit from it). */
     struct MsgData {
-        packedLE<int>::t   len;       /* len of the msg, including this field */
-        packedLE<MSGID>::t id;        /* request/reply id's match... */
-        packedLE<MSGID>::t responseTo;/* id of the message we are responding to */
-        packedLE<short>::t _operation;
-        packedLE<signed char>::t _flags;
-        packedLE<signed char>::t _version;
+        little<int>   len;       /* len of the msg, including this field */
+        little<MSGID> id;        /* request/reply id's match... */
+        little<MSGID> responseTo;/* id of the message we are responding to */
+        little<short> _operation;
+        little<signed char> _flags;
+        little<signed char> _version;
         char _data[4];
 
         int operation() const {
@@ -262,8 +262,8 @@ namespace mongo {
             _operation = o;
         }
 
-        packedLE<int>::t& dataAsInt() {
-            return refLE<int>( _data );
+        little<int>& dataAsInt() {
+            return little<int>::ref( _data );
         }
 
         int getDataAsInt() const {

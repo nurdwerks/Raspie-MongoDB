@@ -129,37 +129,37 @@ namespace mongo {
         // ofs 168 (8 byte aligned)
         struct Stats {
             // datasize and nrecords MUST Be adjacent code assumes!
-            packedLE<long long>::t datasize; // this includes padding, but not record headers
-            packedLE<long long>::t nrecords;
+            little<long long> datasize; // this includes padding, but not record headers
+            little<long long> nrecords;
 	} stats;
-        packedLE<int>::t lastExtentSize;
-        packedLE<int>::t nIndexes;
+        little<int> lastExtentSize;
+        little<int> nIndexes;
     private:
         // ofs 192
         IndexDetails _indexes[NIndexesBase];
     public:
         // ofs 352 (16 byte aligned)
-        packedLE<int>::t capped;
-        packedLE<int>::t max;                              // max # of objects for a capped table.  TODO: should this be 64 bit?
-        packedLE<double>::t paddingFactor;                 // 1.0 = no padding.
+        little<int> capped;
+        little<int> max;                              // max # of objects for a capped table.  TODO: should this be 64 bit?
+        little<double> paddingFactor;                 // 1.0 = no padding.
         // ofs 386 (16)
-        packedLE<int>::t flags;
+        little<int> flags;
         DiskLoc capExtent;
         DiskLoc capFirstNewRecord;
-        packedLE<unsigned short>::t dataFileVersion;       // NamespaceDetails version.  So we can do backward compatibility in the future. See filever.h
-        packedLE<unsigned short>::t indexFileVersion;
-        packedLE<unsigned long long>::t multiKeyIndexBits;
+        little<unsigned short> dataFileVersion;       // NamespaceDetails version.  So we can do backward compatibility in the future. See filever.h
+        little<unsigned short> indexFileVersion;
+        little<unsigned long long> multiKeyIndexBits;
     private:
         // ofs 400 (16)
-        packedLE<unsigned long long>::t reservedA;
-        packedLE<long long>::t extraOffset;                // where the $extra info is located (bytes relative to this)
+        little<unsigned long long> reservedA;
+        little<long long> extraOffset;                // where the $extra info is located (bytes relative to this)
     public:
-        packedLE<int>::t indexBuildInProgress;   // 1 if in prog
-        packedLE<unsigned>::t reservedB;
+        little<int> indexBuildInProgress;   // 1 if in prog
+        little<unsigned> reservedB;
         // ofs 424 (8)
         struct Capped2 {
-            packedLE<unsigned long long>::t cc2_ptr;       // see capped.cpp
-            packedLE<unsigned>::t fileNumber;
+            little<unsigned long long> cc2_ptr;       // see capped.cpp
+            little<unsigned> fileNumber;
         } capped2;
         char reserved[60];
         /*-------- end data 496 bytes */
@@ -167,12 +167,12 @@ namespace mongo {
         explicit NamespaceDetails( const DiskLoc &loc, bool _capped );
 
         class Extra {
-            packedLE<long long>::t _next;
+            little<long long> _next;
         public:
             IndexDetails details[NIndexesExtra];
         private:
-            packedLE<unsigned>::t reserved2;
-            packedLE<unsigned>::t reserved3;
+            little<unsigned> reserved2;
+            little<unsigned> reserved3;
             Extra(const Extra&) { assert(false); }
             Extra& operator=(const Extra& r) { assert(false); return *this; }
         public:
@@ -376,10 +376,10 @@ namespace mongo {
         friend class NamespaceIndex;
         struct ExtraOld {
             // note we could use this field for more chaining later, so don't waste it:
-            packedLE<unsigned long long>::t reserved1;
+            little<unsigned long long> reserved1;
             IndexDetails details[NIndexesExtra];
-            packedLE<unsigned>::t reserved2;
-            packedLE<unsigned>::t reserved3;
+            little<unsigned> reserved2;
+            little<unsigned> reserved3;
         };
         /** Update cappedLastDelRecLastExtent() after capExtent changed in cappedTruncateAfter() */
         void cappedTruncateLastDelUpdate();

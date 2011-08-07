@@ -1049,7 +1049,7 @@ namespace mongo {
             name=0;
             eoo=EOO;
         }
-        packedLE<int>::t totsize;
+        little<int> totsize;
         char maxkey;
         char name;
         char eoo;
@@ -1063,7 +1063,7 @@ namespace mongo {
             name=0;
             eoo=EOO;
         }
-        packedLE<int>::t totsize;
+        little<int> totsize;
         char minkey;
         char name;
         char eoo;
@@ -1076,7 +1076,7 @@ namespace mongo {
                 totsize = 5;
                 eoo = EOO;
             }
-            packedLE<int>::t totsize;
+            little<int> totsize;
             char eoo;
         } js0;
     */
@@ -1218,7 +1218,7 @@ namespace mongo {
 
     void BSONElementManipulator::initTimestamp() {
         massert( 10332 ,  "Expected CurrentTime type", _element.type() == Timestamp );
-        packedLE<unsigned long long>::t& timestamp = refLE<unsigned long long>( value() );
+        little<unsigned long long>& timestamp = little<unsigned long long>::ref( value() );
         if ( timestamp == 0 )
             timestamp = OpTime::now().asDate();
     }

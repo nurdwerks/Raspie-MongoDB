@@ -38,15 +38,15 @@ namespace mongo {
 
 #pragma pack(1)
     struct QueryResult : public MsgData {
-        packedLE<long long>::t cursorId;
-        packedLE<int>::t       startingFrom;
-        packedLE<int>::t       nReturned;
+        little<long long> cursorId;
+        little<int>       startingFrom;
+        little<int>       nReturned;
 
         const char *data() {
             return reinterpret_cast<char*>( &nReturned + 1 );
         }
 
-        packedLE<int>::t& _resultFlags() {
+        little<int>& _resultFlags() {
            return dataAsInt();
         }
 
@@ -75,13 +75,13 @@ namespace mongo {
             // for received messages, Message has only one buffer
             theEnd = _m.singleData()->_data + _m.header()->dataLen();
             char *r = _m.singleData()->_data;
-            reserved = &refLE<int>( r );
+            reserved = &little<int>::ref( r );
             data = r + 4;
             nextjsobj = data;
         }
 
         /** the 32 bit field before the ns */
-        packedLE<int>::t& reservedField() { return *reserved; }
+        little<int>& reservedField() { return *reserved; }
 
         const char * getns() const {
             return data;
@@ -112,10 +112,10 @@ namespace mongo {
         void resetPull(){ nextjsobj = data; }
         int pullInt() const { return pullInt(); }
 
-        const packedLE<int>::t& pullInt() {
+        const little<int>& pullInt() {
             if ( nextjsobj == data )
                 nextjsobj += strlen(data) + 1; // skip namespace
-            const packedLE<int>::t& i = refLE<int>(nextjsobj);
+            const little<int>& i = little<int>::ref(nextjsobj);
             nextjsobj += 4;
             return i;
         }
@@ -182,7 +182,7 @@ namespace mongo {
 
     private:
         const Message& m;
-        packedLE<int>::t* reserved;
+        little<int>* reserved;
         const char *data;
         const char *nextjsobj;
         const char *theEnd;

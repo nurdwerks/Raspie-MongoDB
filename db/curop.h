@@ -47,7 +47,7 @@ namespace mongo {
         static BSONObj _tooBig; // { $msg : "query not recording (too large)" }
 
         CachedBSONObj(){
-            _size = &refLE<int>(_buf);
+            _size = &little<int>::ref(_buf);
             reset();
         }
 
@@ -123,7 +123,7 @@ namespace mongo {
         void _reset( int sz ) { _size[0] = sz; }
 
         SpinLock _lock;
-        packedLE<int>::t* _size;
+        little<int>* _size;
         char _buf[512];
     };
 

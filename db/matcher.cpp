@@ -924,15 +924,15 @@ namespace mongo {
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
-        packedLE<unsigned>::t totsize;
+        little<unsigned> totsize;
 
         char n;
         char nname[5];
-        packedLE<double>::t N;
+        little<double> N;
 
         char s;
         char sname[7];
-        packedLE<unsigned>::t slen;
+        little<unsigned> slen;
         char sval[10];
 
         char eoo;
@@ -951,10 +951,10 @@ namespace mongo {
             strcpy_s(sval, 10, "123456789");
             eoo = EOO;
         }
-        packedLE<unsigned>::t totsize;
+        little<unsigned> totsize;
         char s;
         char sname[7];
-        packedLE<unsigned>::t slen;
+        little<unsigned> slen;
         char sval[10];
         char eoo;
     } js2;

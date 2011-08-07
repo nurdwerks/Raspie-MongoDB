@@ -900,8 +900,8 @@ namespace mongo {
             }
             else {
                 DEV {
-                    packedLE<unsigned long long>::t *p = 
-                      &refLE<unsigned long long>(todelete->data);
+                    little<unsigned long long> *p = 
+                      &little<unsigned long long>::ref(todelete->data);
                     *getDur().writing(p) = 0;
                     //DEV memset(todelete->data, 0, todelete->netLength()); // attempt to notice invalid reuse.
                 }
@@ -1329,8 +1329,8 @@ namespace mongo {
             )
         }
     private:
-        packedLE<int>::t& nIndexes() { return getDur().writingInt( _d->nIndexes ); }
-        packedLE<int>::t& indexBuildInProgress() { return getDur().writingInt( _d->indexBuildInProgress ); }
+        little<int>& nIndexes() { return getDur().writingInt( _d->nIndexes ); }
+        little<int>& indexBuildInProgress() { return getDur().writingInt( _d->indexBuildInProgress ); }
         NamespaceDetails *_d;
     };
 
