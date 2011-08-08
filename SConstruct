@@ -795,7 +795,7 @@ def CheckFetchAndAdd( context ):
             __sync_add_and_fetch(&x, 1);
             return 0; 
           }
-""", ".c" )
+""", ".cc" )
     context.Result( res )
     return res
 
@@ -808,7 +808,7 @@ def CheckTestAndSet( context ):
             __sync_lock_test_and_set(&x, 1);
             return 0; 
           }
-""", ".c" )
+""", ".cc" )
     context.Result( res )
     return res
 
@@ -818,7 +818,7 @@ def CheckSwap32( context ):
            int foo( int x ) {
                return __builtin_bswap32( x );
            }
-""", ".c" )
+""", ".cc" )
     
     res = res and not 'bswap' in context.lastTarget.get_contents()
     
@@ -831,7 +831,7 @@ def CheckSwap64( context ):
            long long foo( long long x ) {
                return __builtin_bswap64( x );
            }
-""", ".c" )
+""", ".cc" )
     
     res = res and not 'bswap' in context.lastTarget.get_contents()
     
