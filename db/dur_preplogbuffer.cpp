@@ -172,7 +172,7 @@ namespace mongo {
                 unsigned L = (bb.len() + Alignment-1) & (~(Alignment-1));
                 dassert( L >= (unsigned) bb.len() );
 
-                *((unsigned*)bb.atOfs(0)) = L;
+                little<unsigned>::ref( bb.atOfs(0) ) = L;
 
                 unsigned padding = L - bb.len();
                 bb.skip(padding);
