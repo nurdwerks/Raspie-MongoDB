@@ -146,7 +146,7 @@ namespace ThreadedTests {
             }
         }
         void validate() {
-            ASSERT_EQUALS(target.x , unsigned(nthreads * iterations));
+            ASSERT_EQUALS(unsigned(target.x) , unsigned(nthreads * iterations));
 
             AtomicUInt u;
             ASSERT_EQUALS(0u, u);

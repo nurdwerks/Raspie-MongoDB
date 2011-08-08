@@ -21,6 +21,9 @@
 #if defined(_WIN32)
 #  include <windows.h>
 #endif
+#if defined(__APPLE__)
+#  include <libkern/OSAtomic.h>
+#endif
 
 namespace mongo {
 
@@ -38,7 +41,11 @@ namespace mongo {
 
         inline void zero() { x = 0; } // TODO: this isn't thread safe
 
+#if defined(__APPLE__)
+        volatile int32_t x;
+#else
         volatile unsigned x;
+#endif
     };
 
 #if defined(_WIN32)
@@ -54,6 +61,21 @@ namespace mongo {
     }
     AtomicUInt AtomicUInt::operator--(int) {
         return InterlockedDecrement((volatile long*)&x)+1;
+    }
+#elif defined( __APPLE__ )
+    AtomicUInt AtomicUInt::operator++() {
+        // OSAtomicIncrement32Barrier  returns the new value
+        // TODO: Is the barrier version needed?
+        return OSAtomicIncrement32Barrier( &x );
+    }
+    AtomicUInt AtomicUInt::operator++(int) {
+        return OSAtomicIncrement32Barrier( &x ) - 1;
+    }
+    AtomicUInt AtomicUInt::operator--() {
+        return OSAtomicDecrement32Barrier( &x );
+    }
+    AtomicUInt AtomicUInt::operator--(int) {
+        return OSAtomicDecrement32Barrier( &x ) + 1;
     }
 #elif defined(HAVE_SYNC_FETCH_AND_ADD)
     // this is in GCC >= 4.1
