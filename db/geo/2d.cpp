@@ -443,10 +443,6 @@ namespace mongo {
                 BSONObj in = BSON( "x" << x << "y" << y );
                 GeoHash h = g._hash( in );
                 BSONObj out = g._unhash( h );
-                std::cerr << "in[x] = " << in[ "x" ].number() << endl;
-                std::cerr << "round(x) = " << round(x) 
-                          << "  out[\"x\"].number() " <<  out["x"].number() 
-                          << std::endl;
                 assert( round(x) == round( out["x"].number() ) );
                 assert( round(y) == round( out["y"].number() ) );
                 assert( round( in["x"].number() ) == round( out["x"].number() ) );
@@ -1129,7 +1125,14 @@ namespace mongo {
         virtual Record* _current() { assert(ok()); return _cur->_loc.rec(); }
         virtual BSONObj current() { assert(ok()); return _cur->_o; }
         virtual DiskLoc currLoc() { assert(ok()); return _cur->_loc; }
-        virtual bool advance() { _cur++; incNscanned(); return ok(); }
+        virtual bool advance() {
+            if( ok() ){
+                _cur++;
+                incNscanned();
+                return ok();
+            }
+            return false;
+        }
         virtual BSONObj currKey() const { return _cur->_key; }
 
         virtual string toString() {
