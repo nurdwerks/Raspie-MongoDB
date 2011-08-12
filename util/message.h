@@ -265,14 +265,6 @@ namespace mongo {
         little<int>& dataAsInt() {
             return little<int>::ref( _data );
         }
-
-        int getDataAsInt() const {
-            return readLE<int>(_data);
-        }
-
-        void setDataAsInt( int val ) {
-            copyLE<int>( _data, val );
-        }
         
         bool valid() const {
             if ( len <= 0 || len > ( 4 * BSONObjMaxInternalSize ) )

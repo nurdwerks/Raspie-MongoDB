@@ -199,8 +199,7 @@ namespace mongo {
             QueryResult * msgdata = (QueryResult *) b.buf();
             b.decouple();
             QueryResult *qr = msgdata;
-
-            qr->setResultFlags( ResultFlag_ErrSet );
+            qr->_resultFlags() = ResultFlag_ErrSet;
 
             if ( e.getCode() == StaleConfigInContextCode )
                 qr->_resultFlags() |= ResultFlag_ShardConfigStale;
@@ -383,10 +382,9 @@ namespace mongo {
     } /* assembleResponse() */
 
     void receivedKillCursors(Message& m) {
-        char *x = m.singleData()->_data;
-        x += 4; // reserved
-        int n = readLE<int>( x );
-        x += 4;
+        little<int>* x = &little<int>::ref( m.singleData()->_data );
+        x++; // reserved
+        int n = *x++;
 
         assert( m.dataSize() == 8 + ( 8 * n ) );
 
@@ -397,10 +395,10 @@ namespace mongo {
         }
         
         // Byteswap (maybe) and align the cursors
-        FastArray<long long> cursors( n );
+        boost::scoped_array<long long> cursors( new long long[n] );
+        little<long long>* in_cursors = &little<long long>::ref( x );
         for ( int i = 0; i < n; ++i ) {
-           cursors.push_back( readLE<long long>( x ) );
-           x += 8;
+            cursors[i] = in_cursors[i];
         }
 
         int found = ClientCursor::erase(n, &cursors[0] );

@@ -215,9 +215,9 @@ namespace mongo {
 
         uassert( 13286 , "sent 0 cursors to kill" , n >= 1 );
         uassert( 13287 , "too many cursors to kill" , n < 30000 );
-        
+
         little<long long>* cursors = &little<long long>::ref( x );
-        for ( int i=0; i<n; i++ ){
+        for ( int i=0; i<n; i++ ) {
             long long id = cursors[i];
             LOG(_myLogLevel) << "CursorCache::gotKillCursors id: " << id << endl;
 

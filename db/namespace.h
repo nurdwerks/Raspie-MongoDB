@@ -301,14 +301,14 @@ namespace mongo {
         int fieldIsIndexed(const char *fieldName);
 
         void paddingFits() {
-            little<double> x = paddingFactor - 0.01;
+            double x = paddingFactor - 0.01;
             if ( x >= 1.0 )
-                getDur().setNoJournal(&paddingFactor, &x, sizeof(x));
+                getDur().setNoJournal(&paddingFactor, &x);
         }
         void paddingTooSmall() {
-            little<double> x = paddingFactor + 0.6;
+            double x = paddingFactor + 0.6;
             if ( x <= 2.0 )
-                getDur().setNoJournal(&paddingFactor, &x, sizeof(x));
+                getDur().setNoJournal(&paddingFactor, &x);
         }
 
         // @return offset in indexes[]

@@ -126,13 +126,32 @@ namespace mongo {
                 return (T*) writingPtr(x, sizeof(T));
             }
 
+        protected:
             /** write something that doesn't have to be journaled, as this write is "unimportant".
                 a good example is paddingFactor.
                 can be thought of as memcpy(dst,src,len)
                 the dur implementation acquires a mutex in this method, so do not assume it is faster
                 without measuring!
             */
-            virtual void setNoJournal(void *dst, void *src, unsigned len) = 0;
+            virtual void setNoJournal( void *dst, const void *src, 
+                                       unsigned len) = 0;
+        public:
+
+            /**
+             *   Type safe setNoJournal
+             */
+            template<typename T> void setNoJournal( T* dst, const T* src ) {
+                setNoJournal( dst, src, sizeof( T ) );
+            }
+
+            /**
+             *   Type safe setNoJournal
+             */
+            template<typename T> void setNoJournal( little<T>* dst, const T* src ){
+                little<T> tmp = *src;
+                setNoJournal( dst, &tmp, sizeof (little<T>) );
+            }
+
 
             /** Commits pending changes, flushes all changes to main data
                 files, then removes the journal.
@@ -174,7 +193,7 @@ namespace mongo {
             bool awaitCommit() { return false; }
             bool commitNow() { return false; }
             bool commitIfNeeded() { return false; }
-            void setNoJournal(void *dst, void *src, unsigned len);
+            void setNoJournal(void *dst, const void *src, unsigned len);
             void syncDataAndTruncateJournal() {}
         };
 
@@ -187,7 +206,7 @@ namespace mongo {
             bool awaitCommit();
             bool commitNow();
             bool commitIfNeeded();
-            void setNoJournal(void *dst, void *src, unsigned len);
+            void setNoJournal(void *dst, const void *src, unsigned len);
             void syncDataAndTruncateJournal();
         };
 

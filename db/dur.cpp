@@ -118,11 +118,11 @@ namespace mongo {
             }
         }
 
-        void NonDurableImpl::setNoJournal(void *dst, void *src, unsigned len) {
+        void NonDurableImpl::setNoJournal(void *dst, const void *src, unsigned len) {
             memcpy(dst, src, len);
         }
 
-        void DurableImpl::setNoJournal(void *dst, void *src, unsigned len) {
+        void DurableImpl::setNoJournal(void *dst, const void *src, unsigned len) {
             MemoryMappedFile::makeWritable(dst, len);
 
             // we stay in this mutex for everything to work with DurParanoid/validateSingleMapMatches

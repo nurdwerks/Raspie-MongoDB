@@ -46,20 +46,16 @@ namespace mongo {
             return reinterpret_cast<char*>( &nReturned + 1 );
         }
 
+        int resultFlags() {
+            return dataAsInt();
+        }
+        
         little<int>& _resultFlags() {
            return dataAsInt();
         }
 
-        int resultFlags() const {
-            return getDataAsInt();
-        }
-        
         void setResultFlagsToOk() {
             _resultFlags() = ResultFlag_AwaitCapable;
-        }
-
-        void setResultFlags( int resultFlags ) {
-           setDataAsInt( resultFlags );
         }
     };
 #pragma pack()
@@ -210,7 +206,7 @@ namespace mongo {
             if ( d.moreJSObjs() ) {
                 fields = d.nextJsObj();
             }
-            queryOptions = d.msg().header()->getDataAsInt();
+            queryOptions = d.msg().header()->dataAsInt();
         }
     };
 
@@ -230,9 +226,9 @@ namespace mongo {
         b.skip(sizeof(QueryResult));
         b.appendBuf(data, size);
         QueryResult *qr = (QueryResult *) b.buf();
-        qr->setResultFlags( queryResultFlags );
+        qr->_resultFlags() = queryResultFlags;
         qr->len = b.len();
-        qr->setOperation( opReply );
+        qr->setOperation(opReply);
         qr->cursorId = cursorId;
         qr->startingFrom = startingFrom;
         qr->nReturned = nReturned;
@@ -266,9 +262,9 @@ namespace mongo {
         QueryResult* msgdata = (QueryResult *) b.buf();
         b.decouple();
         QueryResult *qr = msgdata;
-        qr->setResultFlags( queryResultFlags );
+        qr->_resultFlags() = queryResultFlags;
         qr->len = b.len();
-        qr->setOperation( opReply );
+        qr->setOperation(opReply);
         qr->cursorId = 0;
         qr->startingFrom = 0;
         qr->nReturned = 1;

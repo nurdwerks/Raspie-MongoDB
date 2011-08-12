@@ -126,8 +126,7 @@ namespace mongo {
                 if( i.owned )
                     i.loc[0] = last;
                 else {
-                    little<OpTime> tmpLast = last;
-                    getDur().setNoJournal(i.loc, &tmpLast, sizeof(tmpLast));
+                    getDur().setNoJournal(i.loc, &last);
                 }
                 return;
             }
@@ -139,14 +138,12 @@ namespace mongo {
                 assert( res["syncedTo"].type() );
                 i.owned = false;
                 i.loc = &little<OpTime>::ref( (char*)res["syncedTo"].value() );
-                little<OpTime> tmpLast = last;
-                getDur().setNoJournal(i.loc, &tmpLast, sizeof(tmpLast));
+                getDur().setNoJournal(i.loc, &last);
                 return;
             }
 
             i.owned = true;
-            i.loc = new little<OpTime>[1];
-            i.loc[0] = last;
+            i.loc = new little<OpTime>( OpTime( last ) );
             _dirty = true;
 
             if ( ! _started ) {

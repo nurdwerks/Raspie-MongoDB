@@ -1596,7 +1596,7 @@ namespace mongo {
             r = (Record*) getDur().writingPtr(r, lenWHdr);
             if( addID ) {
                 /* a little effort was made here to avoid a double copy when we add an ID */
-                copyLE<int>( r->data, readLE<int>( (char*)obuf  ) + newId->size() );
+                little<int>::ref(r->data) = little<int>::ref(obuf) + newId->size();
                 memcpy(r->data+4, newId->rawdata(), newId->size());
                 memcpy(r->data+4+newId->size(), ((char *)obuf)+4, addID-4);
             }
