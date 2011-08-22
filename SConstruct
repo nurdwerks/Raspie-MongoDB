@@ -668,10 +668,9 @@ if nix:
     if has_option( "distcc" ):
         env["CXX"] = "distcc " + env["CXX"]
         
-    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch " )
+    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch" )
     # env.Append( " -Wconversion" ) TODO: this doesn't really work yet
-    env.Append( CPPFLAGS="-fPIC -fno-strict-aliasing -ggdb -pthread -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch " )
-    env.Append( CPPFLAGS="-Wcast-align " )    
+    env.Append( CPPFLAGS=" -Wcast-align " )    
 
     if linux and ( processor == "i386" or processor == "x86_64" ):
         env.Append( CPPFLAGS=" -Werror " )
@@ -840,7 +839,7 @@ def CheckSwap64( context ):
 
 def CheckAlignment( context ):
     oldCFLAGS = context.env['CFLAGS']
-    context.env['CFLAGS'] = " -Wcast-align -Werror "
+    context.env['CFLAGS'] = context.env['CFLAGS'] + " -Wcast-align -Werror "
     context.Message( 'Checking if alignment is important ...' )
     res = context.TryLink( """
           int main(int argc, char** argv)
@@ -868,20 +867,6 @@ def doConfigure( myenv , needJava=True , needPcre=True , shell=False ):
         if not conf.CheckLib( "stdc++" ):
             print( "can't find stdc++ library which is needed" );
             Exit(1)
-
-    def checkSyncAddAndFetch( conf ):
-       print( "Checking for __sync_fetch_and_add and __sync_add_and_fetch" )
-       prog = """
-          int main() 
-          { 
-            int x; 
-            __sync_fetch_and_add(&x, 1); 
-            __sync_add_and_fetch(&x, 1);
-            return 0; 
-          }
-"""
-       return conf.TryLink(prog, '.c')
- 
 
     def myCheckLib( poss , failIfNotFound=False , staticOnly=False):
 
