@@ -28,7 +28,6 @@
 
 namespace mongo {
 
-#pragma pack(1)
 
     /* you should define:
 
@@ -42,6 +41,7 @@ namespace mongo {
     class HashTable : boost::noncopyable {
     public:
         const char *name;
+#pragma pack(1)
         struct Node {
             little<int> hash;
             Key k;
@@ -53,9 +53,10 @@ namespace mongo {
                 hash = 0;
             }
         };
+#pragma pack()
         void* _buf;
-        little<int> n;
-        little<int> maxChain;
+        int n;
+        int maxChain;
 
         Node& nodes(int i) {
             Node *nodes = (Node *) _buf;
@@ -174,6 +175,5 @@ namespace mongo {
 
     };
 
-#pragma pack()
 
 } // namespace mongo

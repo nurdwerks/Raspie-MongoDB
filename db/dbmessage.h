@@ -51,7 +51,7 @@ namespace mongo {
         }
         
         little<int>& _resultFlags() {
-           return dataAsInt();
+            return dataAsInt();
         }
 
         void setResultFlagsToOk() {
@@ -91,7 +91,8 @@ namespace mongo {
         }
 
         int getInt( int num ) const {
-            return readLE<int>( afterNS() + 4 * num );
+            const little<int>* foo = &little<int>::ref( afterNS() );
+            return foo[num];
         }
 
         int getQueryNToReturn() const {
@@ -123,13 +124,6 @@ namespace mongo {
                 little<long long>::ref( const_cast<char*>( nextjsobj ) );
             nextjsobj += 8;
             return i;
-        }
-
-        void pushInt64( long long toPush ) {
-           if ( nextjsobj == data )
-              nextjsobj += strlen(data) + 1; // skip namespace
-           little<long long>::ref( const_cast<char*>(nextjsobj) ) = toPush;
-           nextjsobj += 8;
         }
 
         OID* getOID() const {

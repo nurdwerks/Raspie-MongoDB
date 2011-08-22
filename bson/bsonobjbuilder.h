@@ -633,7 +633,7 @@ namespace mongo {
             _b.appendNum((char) EOO);
             char *data = _b.buf() + _offset;
             int size = _b.len() - _offset;
-            copyLE<int>( data, size );
+            little<int>::ref( data ) = size;
             if ( _tracker )
                 _tracker->got( size );
             return data;

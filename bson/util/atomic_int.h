@@ -41,11 +41,7 @@ namespace mongo {
 
         inline void zero() { x = 0; } // TODO: this isn't thread safe
 
-#if defined(__APPLE__)
-        volatile int32_t x;
-#else
         volatile unsigned x;
-#endif
     };
 
 #if defined(_WIN32)
@@ -63,19 +59,22 @@ namespace mongo {
         return InterlockedDecrement((volatile long*)&x)+1;
     }
 #elif defined( __APPLE__ )
+    
+    int32_t* p() { return reinterpret_cast<int32_t*>( &x ); }
+
     AtomicUInt AtomicUInt::operator++() {
         // OSAtomicIncrement32Barrier  returns the new value
         // TODO: Is the barrier version needed?
-        return OSAtomicIncrement32Barrier( &x );
+        return OSAtomicIncrement32Barrier( p() );
     }
     AtomicUInt AtomicUInt::operator++(int) {
-        return OSAtomicIncrement32Barrier( &x ) - 1;
+        return OSAtomicIncrement32Barrier( p() ) - 1;
     }
     AtomicUInt AtomicUInt::operator--() {
-        return OSAtomicDecrement32Barrier( &x );
+        return OSAtomicDecrement32Barrier( p() );
     }
     AtomicUInt AtomicUInt::operator--(int) {
-        return OSAtomicDecrement32Barrier( &x ) + 1;
+        return OSAtomicDecrement32Barrier( p() ) + 1;
     }
 #elif defined(HAVE_SYNC_FETCH_AND_ADD)
     // this is in GCC >= 4.1

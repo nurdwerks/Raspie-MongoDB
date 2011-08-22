@@ -36,9 +36,9 @@ namespace mongo {
         little<unsigned short> _kdo;
 
         short keyDataOfs() const {
-            return _kdo;
+            return (short) _kdo;
         }
-        
+
         void setKeyDataOfs(short s) {
             _kdo = s;
             assert(s>=0);
