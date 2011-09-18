@@ -60,22 +60,24 @@ namespace mongo {
     }
 #elif defined( __APPLE__ )
     
-    int32_t* p() { return reinterpret_cast<int32_t*>( &x ); }
+#define PTR_CAST reinterpret_cast<volatile int32_t*>( &x )
 
     AtomicUInt AtomicUInt::operator++() {
         // OSAtomicIncrement32Barrier  returns the new value
         // TODO: Is the barrier version needed?
-        return OSAtomicIncrement32Barrier( p() );
+        return OSAtomicIncrement32Barrier( PTR_CAST );
     }
     AtomicUInt AtomicUInt::operator++(int) {
-        return OSAtomicIncrement32Barrier( p() ) - 1;
+        return OSAtomicIncrement32Barrier( PTR_CAST ) - 1;
     }
     AtomicUInt AtomicUInt::operator--() {
-        return OSAtomicDecrement32Barrier( p() );
+        return OSAtomicDecrement32Barrier( PTR_CAST );
     }
     AtomicUInt AtomicUInt::operator--(int) {
-        return OSAtomicDecrement32Barrier( p() ) + 1;
+        return OSAtomicDecrement32Barrier( PTR_CAST ) + 1;
     }
+
+#undef PTR_CAST
 #elif defined(HAVE_SYNC_FETCH_AND_ADD)
     // this is in GCC >= 4.1
     AtomicUInt AtomicUInt::operator++() {
