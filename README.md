@@ -28,8 +28,9 @@ Clone / Compile / Install
     sudo chown pi /data/db
     
     # Create the log folder
-    mkdir /var/log/mongodb
-    chmod 777 /var/log/mongodb 
+    cd /var/log
+    mkdir mongodb
+    chmod 777 mongodb 
     
     
 Create the service script to start a database
@@ -52,4 +53,5 @@ To run a single server database:
     sudo /etc/init.d/MongoDB start
     
     # To test the database connection
-    ./opt/mongo/bin/mongo 
+    cd /opt/mongo/bin/
+    ./mongo 
