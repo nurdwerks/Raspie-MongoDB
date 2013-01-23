@@ -23,15 +23,25 @@ Clone / Compile / Install
     PATH=$PATH:/opt/mongo/bin/
     export PATH
     
+    # Create a data folder for the database and give the pi user rights
+    mkdir /data/db
+    sudo chown pi /data/db
+    
+    # Create the log folder
+    mkdir /var/log/mongodb
+    chmod 777 /var/log/mongodb 
+    
+    
 Create the service script to start a database
 --------------------------------------------------------
+    # Copy the file mongodb to the /etc/init.d folder
+    cp Raspie-MongoDB/mongodb /etc/init.d/mongodb
 
 Starting & testing MongoDB
 --------------------------
 
 To run a single server database:
 
-    mkdir /data/db
     ./mongod start
     # The mongo javascript shell connects to localhost and test database by default:
     ./mongo 
