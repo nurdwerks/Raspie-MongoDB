@@ -36,12 +36,20 @@ Create the service script to start a database
 --------------------------------------------------------
     # Copy the file mongodb to the /etc/init.d folder
     cp Raspie-MongoDB/mongodb /etc/init.d/mongodb
+    
+    # Make init script executable
+    sudo chmod +x /etc/init.d/mongodb
+    
+    # set up runtime links
+    sudo update-rc.d mongodb defaults
 
 Starting & testing MongoDB
 --------------------------
 
 To run a single server database:
-
-    ./mongod start
-    # The mongo javascript shell connects to localhost and test database by default:
-    ./mongo 
+    
+    # Start the service (start, stop, reload)
+    sudo /etc/init.d/MongoDB start
+    
+    # To test the database connection
+    ./opt/mongo/bin/mongo 
