@@ -8,7 +8,8 @@ Install the dependent packages
 
 Clone / Compile / Install
 ------------
-
+    
+    # Get a clone and go the the cloned folder
     git clone https://github.com/DjustinK/Raspie-MongoDB
     cd Raspie-MongoDB
     
@@ -18,9 +19,12 @@ Clone / Compile / Install
     # Take another nap while installing
     sudo scons --prefix=/opt/mongo install
     
-    # This will install mongo in /opt/mongo, to get other programs to see it, you can add this dir to your $PATH:
+    # This will install mongo in /opt/mongo, to get other programs to see it, you can add this dir to your $PATH
     PATH=$PATH:/opt/mongo/bin/
     export PATH
+    
+Create the service script to start a database
+--------------------------------------------------------
 
 Starting & testing MongoDB
 --------------------------
