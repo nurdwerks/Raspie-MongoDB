@@ -15,4 +15,3 @@ To run a single server database:
     ./mongod start
     # The mongo javascript shell connects to localhost and test database by default:
     ./mongo 
-
