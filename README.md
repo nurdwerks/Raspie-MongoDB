@@ -1,5 +1,7 @@
 Raspie-MongoDB
 ==============
+MongoDB for raspberry pi.
+
 MongoDB shell version: 2.1.1-pre-
 
 Install the dependent packages 
