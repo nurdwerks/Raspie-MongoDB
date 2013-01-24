@@ -52,7 +52,7 @@ Starting & testing MongoDB
 To run a single server database:
     
     # Start the service (start, stop, reload)
-    sudo /etc/init.d/MongoDB start
+    sudo /etc/init.d/mongodb start
     
     # To test the database connection
     cd /opt/mongo/bin/
